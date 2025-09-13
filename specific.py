@@ -32,7 +32,7 @@ def intent_extraction():
     "Do not include section titles, explanations, or any extra text—just the commands in the specified format. "
     "Here is the user request: '" + user_input + "'. "
     "Available edit techniques: clip trimming, transitions, audio effects, dynamic zoom, object face blur, "
-    "face/object tracking, subtitles, video effects."
+    "face/object tracking, subtitles, video effects, sound effects (boom, gunshot, explosion, whoosh)."
     )
     response = co.chat(
         model="command-a-03-2025",
@@ -183,6 +183,93 @@ def run_edits(commands, original_instances=None):
                     output_files.append(output_path)
             else:
                 print(f"❌ Error trimming video: {result['error']}")
+                print(f"FFmpeg output: {result['output']}")
+                print(f"FFmpeg error: {result['error']}")
+        
+        elif command.lower() in ["add sound effect", "sound effect", "boom effect", "add boom", "boom", "gunshot", "explosion", "whoosh", "swoosh"]:
+            # Handle sound effect addition
+            print(f"🔊 Adding sound effect...")
+            
+            # Determine which sound effect to use based on command
+            sound_effect_mapping = {
+                "boom": "boom_effect.mp3",
+                "boom effect": "boom_effect.mp3", 
+                "add boom": "boom_effect.mp3",
+                "gunshot": "gunshot_effect.mp3",
+                "explosion": "explosion_effect.mp3",
+                "whoosh": "whoosh_effect.mp3",
+                "swoosh": "swoosh_effect.mp3",
+                "sound effect": "boom_effect.mp3",  # Default
+                "add sound effect": "boom_effect.mp3"  # Default
+            }
+            
+            # Find the appropriate sound effect file
+            sound_effect_path = None
+            for effect_type, file_path in sound_effect_mapping.items():
+                if effect_type in command.lower():
+                    if os.path.exists(file_path):
+                        sound_effect_path = file_path
+                        break
+                    else:
+                        print(f"⚠️  {file_path} not found, trying default...")
+            
+            # Fallback to boom_effect.mp3 if no specific effect found
+            if not sound_effect_path:
+                sound_effect_path = "boom_effect.mp3"
+            
+            # Check if sound effect file exists
+            if not os.path.exists(sound_effect_path):
+                print(f"⚠️  Sound effect file not found: {sound_effect_path}")
+                print("Available sound effects: boom_effect.mp3, gunshot_effect.mp3, explosion_effect.mp3")
+                print("Please add sound effect files to the project directory")
+                continue
+            
+            print(f"Using sound effect: {sound_effect_path}")
+            
+            final_output = f"{base_name}_edited.mp4"
+            
+            # For sound effects, we need to determine timing
+            if i == 0:
+                # First operation - use the specific timestamps
+                start_seconds = timestamps[0]
+                duration_seconds = timestamps[1] - timestamps[0]
+                effect_start_time = start_seconds  # Start effect at the beginning of the segment
+                effect_duration = min(duration_seconds, 3.0)  # Limit effect duration to 3 seconds max
+            else:
+                # Subsequent operation - add effect to the entire current video
+                effect_start_time = 0  # Start at beginning
+                effect_duration = 3.0  # 3 second effect
+            
+            print(f"Adding sound effect at {effect_start_time}s for {effect_duration}s")
+            
+            # Add sound effect
+            result = utils.add_sound_effect(
+                input_path=current_video_path,
+                output_path=final_output,
+                effect_path=sound_effect_path,
+                start_time=effect_start_time,
+                duration=effect_duration,
+                volume=1.0,
+                replace=False  # Mix with original audio
+            )
+            
+            if result["success"]:
+                print(f"✅ Sound effect added successfully!")
+                print(f"📁 Output file: {final_output}")
+                print(f"📂 Full path: {os.path.abspath(final_output)}")
+                
+                # Check if file exists and get size
+                if os.path.exists(final_output):
+                    file_size = os.path.getsize(final_output)
+                    print(f"📊 File size: {file_size / (1024*1024):.2f} MB")
+                
+                # Update current video path for next operation
+                current_video_path = final_output
+                # Add to output_files if this is the first successful operation or if output_files is empty
+                if i == 0 or len(output_files) == 0:
+                    output_files.append(final_output)
+            else:
+                print(f"❌ Error adding sound effect: {result['error']}")
                 print(f"FFmpeg output: {result['output']}")
                 print(f"FFmpeg error: {result['error']}")
         
@@ -348,7 +435,7 @@ def run_edits(commands, original_instances=None):
         
         else:
             print(f"⚠️  Unsupported command: '{command}'")
-            print("Supported commands: trim, clip trimming, dynamic zoom, zoom")
+            print("Supported commands: trim, clip trimming, dynamic zoom, zoom, sound effect, boom effect")
     
     return output_files  # Return list of output files
 
@@ -380,27 +467,5 @@ if output_files:
     print("   - Use them in other applications")
     print("   - Further edit them with the utils functions")
     
-    # Ask user what they want to do with the output
-    print("\n🎬 What would you like to do with the output files?")
-    print("1. Open the first video file")
-    print("2. Show file location in explorer")
-    print("3. Copy to desktop")
-    print("4. Do nothing")
-    
-    try:
-        choice = input("\nEnter your choice (1-4): ").strip()
-        
-        if choice == "1" and output_files:
-            output_utils.open_video_file(output_files[0])
-        elif choice == "2" and output_files:
-            output_utils.open_file_location(output_files[0])
-        elif choice == "3" and output_files:
-            output_utils.copy_to_desktop(output_files[0])
-        elif choice == "4":
-            print("👍 Files are ready for you to use!")
-        else:
-            print("❌ Invalid choice or no output files available")
-    except KeyboardInterrupt:
-        print("\n👍 Files are ready for you to use!")
 else:
     print("\n❌ No output files were generated. Check the error messages above.")
