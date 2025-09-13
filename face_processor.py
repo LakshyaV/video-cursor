@@ -491,31 +491,3 @@ class FaceProcessor:
     def __del__(self):
         if hasattr(self, 'cap'):
             self.cap.release()
-
-def example_usage():
-    processor = FaceProcessor("test.mp4", verbose=True)
-    
-    processor.extract_faces()
-    
-    detected_faces = processor.get_detected_faces()
-    print(f"Available faces: {detected_faces}")
-    
-    processor.set_target_face_from_detected("face_0.jpg")
-    
-    processor.set_target_face_from_image("reference_face.jpg", method="embedding")
-    
-    processor.enable_face_blur(51).enable_face_zoom(2.5)
-    
-    processor.process_and_save("output_processed.mp4")
-
-def install_requirements():
-    print("To use face embeddings (recommended), install:")
-    print("pip install face-recognition")
-    print("pip install scikit-learn")
-    print("")
-    print("Note: face-recognition requires cmake and dlib")
-    print("On macOS: brew install cmake")
-    print("On Ubuntu: sudo apt-get install cmake libboost-all-dev")
-
-if __name__ == "__main__":
-    example_usage()
