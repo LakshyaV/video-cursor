@@ -1,0 +1,5 @@
+detected_faces/
+*.mp4
+test_*
+__pycache__
+*.DS_Store
