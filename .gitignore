@@ -4,3 +4,6 @@ __pycache__
 *.DS_Store
 *.pt
 detected_*
+.env
+myenv/
+.python-version
