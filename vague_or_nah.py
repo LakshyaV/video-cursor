@@ -15,7 +15,7 @@ load_dotenv()
 def upload_video():
     client = TwelveLabs(api_key=os.getenv("api_key_1"))
     index = client.indexes.create(
-        index_name="plsbrojij",
+        index_name="pls im gaFIEIcsFVNEyvu",
         models=[
             IndexesCreateRequestModelsItem(
                 model_name="pegasus1.2", model_options=["visual", "audio"]

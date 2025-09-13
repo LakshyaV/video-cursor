@@ -752,6 +752,158 @@ class FFmpegUtils:
                 return comma_combined if comma_combined else [combined_sentences[0]]
         
         return combined_sentences if combined_sentences else [text]
+    
+    def splice_video(self, input_path, output_path, remove_start_time, remove_end_time):
+        """
+        Splice/cut out a section of video by removing the specified time range.
+        Uses re-encoding to ensure proper synchronization and avoid corruption.
+        
+        Args:
+            input_path (str): Path to input video file
+            output_path (str): Path to output video file
+            remove_start_time (str): Start time of section to remove (HH:MM:SS format)
+            remove_end_time (str): End time of section to remove (HH:MM:SS format)
+            
+        Returns:
+            dict: Result with success status and output/error messages
+        """
+        if not os.path.exists(input_path):
+            return {"success": False, "error": f"Input file not found: {input_path}"}
+        
+        try:
+            # Convert time strings to seconds for calculations
+            def time_to_seconds(time_str):
+                parts = time_str.split(':')
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+            
+            def seconds_to_time(seconds):
+                hours = int(seconds // 3600)
+                minutes = int((seconds % 3600) // 60)
+                secs = int(seconds % 60)
+                return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+            
+            remove_start_seconds = time_to_seconds(remove_start_time)
+            remove_end_seconds = time_to_seconds(remove_end_time)
+            
+            # Get video duration first
+            info_result = self.get_media_info(input_path)
+            if not info_result["success"]:
+                return {"success": False, "error": "Could not get video duration"}
+            
+            total_duration_seconds = float(info_result["info"]["format"]["duration"])
+            
+            print(f"🔧 Splice operation details:")
+            print(f"   Total duration: {total_duration_seconds:.2f}s")
+            print(f"   Remove from: {remove_start_seconds}s to {remove_end_seconds}s")
+            print(f"   Remove duration: {remove_end_seconds - remove_start_seconds:.2f}s")
+            
+            # Create temporary files for the parts
+            temp_part1 = "temp_splice_part1.mp4"
+            temp_part2 = "temp_splice_part2.mp4"
+            temp_concat = "temp_splice_concat.txt"
+            
+            parts_to_concat = []
+            
+            try:
+                # Part 1: From beginning to remove_start_time (if exists)
+                if remove_start_seconds > 1:  # Only if there's more than 1 second before
+                    print(f"🔧 Creating part 1: 0s to {remove_start_seconds}s")
+                    
+                    command1 = [
+                        self.ffmpeg_path, '-i', input_path,
+                        '-t', seconds_to_time(remove_start_seconds),
+                        '-c:v', 'libx264', '-c:a', 'aac',
+                        '-crf', '23', '-preset', 'fast',
+                        '-avoid_negative_ts', 'make_zero',
+                        '-y', temp_part1
+                    ]
+                    
+                    result1 = self._run_command(command1, "Extracting Part 1")
+                    if result1["success"]:
+                        parts_to_concat.append(temp_part1)
+                        print(f"✅ Part 1 created successfully")
+                    else:
+                        print(f"❌ Error creating part 1: {result1['error']}")
+                        return result1
+                
+                # Part 2: From remove_end_time to end (if exists)
+                if remove_end_seconds < total_duration_seconds - 1:  # Only if there's more than 1 second after
+                    remaining_duration = total_duration_seconds - remove_end_seconds
+                    print(f"🔧 Creating part 2: {remove_end_seconds}s to end ({remaining_duration:.2f}s)")
+                    
+                    command2 = [
+                        self.ffmpeg_path, '-ss', remove_end_time, '-i', input_path,
+                        '-c:v', 'libx264', '-c:a', 'aac',
+                        '-crf', '23', '-preset', 'fast',
+                        '-avoid_negative_ts', 'make_zero',
+                        '-y', temp_part2
+                    ]
+                    
+                    result2 = self._run_command(command2, "Extracting Part 2")
+                    if result2["success"]:
+                        parts_to_concat.append(temp_part2)
+                        print(f"✅ Part 2 created successfully")
+                    else:
+                        print(f"❌ Error creating part 2: {result2['error']}")
+                        return result2
+                
+                # Check if we have parts to concatenate
+                if len(parts_to_concat) == 0:
+                    return {"success": False, "error": "Nothing to splice - the entire video would be removed"}
+                
+                print(f"🔧 Parts to concatenate: {len(parts_to_concat)}")
+                for i, part in enumerate(parts_to_concat):
+                    if os.path.exists(part):
+                        size = os.path.getsize(part) / (1024*1024)
+                        print(f"   Part {i+1}: {part} ({size:.2f} MB)")
+                
+                # Concatenate parts if we have more than one
+                if len(parts_to_concat) > 1:
+                    # Create concat file with absolute paths
+                    with open(temp_concat, 'w') as f:
+                        for part in parts_to_concat:
+                            f.write(f"file '{os.path.abspath(part)}'\n")
+                    
+                    print(f"📝 Concat file contents:")
+                    with open(temp_concat, 'r') as f:
+                        print(f.read())
+                    
+                    command3 = [
+                        self.ffmpeg_path, '-f', 'concat', '-safe', '0',
+                        '-i', temp_concat,
+                        '-c:v', 'libx264', '-c:a', 'aac',
+                        '-crf', '23', '-preset', 'fast',
+                        '-avoid_negative_ts', 'make_zero',
+                        '-fflags', '+genpts',
+                        '-y', output_path
+                    ]
+                    
+                    print(f"🔧 Running concat command...")
+                    result3 = self._run_command(command3, "Concatenating Parts")
+                    
+                elif len(parts_to_concat) == 1:
+                    # Only one part - just copy it as the final result
+                    print(f"🔧 Only one part exists, copying as final result...")
+                    import shutil
+                    shutil.copy2(parts_to_concat[0], output_path)
+                    result3 = {"success": True, "output": "Single part copied successfully"}
+                
+                # Clean up temporary files
+                for temp_file in [temp_part1, temp_part2, temp_concat]:
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                
+                return result3
+                
+            except Exception as e:
+                # Clean up temporary files on error
+                for temp_file in [temp_part1, temp_part2, temp_concat]:
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                return {"success": False, "error": str(e)}
+                
+        except Exception as e:
+            return {"success": False, "error": f"Splice error: {str(e)}"}
 
 
 # Convenience functions for quick usage
@@ -809,3 +961,8 @@ def transcribe_audio(input_path, output_path, language="en-US", chunk_duration=3
     """Quick function to transcribe audio."""
     utils = FFmpegUtils(ffmpeg_path)
     return utils.transcribe_audio(input_path, output_path, language, chunk_duration)
+
+def splice_video(input_path, output_path, remove_start_time, remove_end_time, ffmpeg_path="ffmpeg"):
+    """Quick function to splice/cut out a section of video."""
+    utils = FFmpegUtils(ffmpeg_path)
+    return utils.splice_video(input_path, output_path, remove_start_time, remove_end_time)
