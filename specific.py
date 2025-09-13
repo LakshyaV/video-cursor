@@ -10,7 +10,7 @@ from glob import glob
 import vague_or_nah
 load_dotenv()
 
-vid_path = vague_or_nah.upload_video()
+index, vid_path = vague_or_nah.upload_video()
 
 def intent_extraction():
     load_dotenv()
@@ -20,7 +20,17 @@ def intent_extraction():
         return
     co = cohere.ClientV2(api_key)
     user_input = input("Describe your video edit request: ")
-    prompt = ("Can you extract specific video edit commands from the following user request and list them in exactly the following format with no other additions: <explaincommand> AND <where in the video/audio it should be applied>, <command>, <where in the video/audio it should be applied> and so on. If there are no specific commands, reply with 'No specific commands found'. Here is the user request: " + f"'{user_input}'. ")
+    prompt = (
+    "Extract the specific video edit commands from the following user request. "
+    "Output them **only** in this exact format: "
+    "<command> AND <where in the video/audio it should be applied>, "
+    "<command> AND <where in the video/audio it should be applied>, "
+    "… (continue as needed). "
+    "Do not include section titles, explanations, or any extra text—just the commands in the specified format. "
+    "Here is the user request: '" + user_input + "'. "
+    "Available edit techniques: clip trimming, transitions, audio effects, dynamic zoom, object face blur, "
+    "face/object tracking, subtitles, video effects."
+    )
     response = co.chat(
         model="command-a-03-2025",
         messages=[{"role": "user", "content": prompt}]
@@ -32,41 +42,38 @@ def intent_extraction():
             if hasattr(item, 'text'):
                 response = item.text.strip()
     
-    edit_demands = response.split(',')
-    for i in range(len(edit_demands)):
-        edit_demands[i] = edit_demands[i].split(' AND ')
-    print(edit_demands)
-
+    print(response)
+    
+    edits = response.split(",")
+    
+    result = []
+    for edit in edits:
+        parts = edit.strip().split("AND")
+        if len(parts) == 2:
+            command = parts[0].strip()
+            location = parts[1].strip()
+            result.append([command, location])
+    print(result)
+    return result
 
 def timestamp_extraction(instances, vid_path):
     edit_demand_final = []
     client = TwelveLabs(api_key=os.getenv("api_key_1"))
-    index = client.indexes.create(
-        index_name="index_name",
-        models=[
-            IndexesCreateRequestModelsItem(
-                model_name="pegasus1.2", model_options=["visual", "audio"]
-            ),
-            IndexesCreateRequestModelsItem(
-                model_name="marengo2.7",
-                model_options=["visual", "audio"],
-            )
-        ]
-
-    )
 
     for i in range(len(instances)):
-        query = instances[i][1]
+        query = "Find " + instances[i][1]
+        print(query)
         search_results = client.search.query(
             index_id=index.id,
             query_text=query,
             search_options=["visual", "audio"]
-            )
+        )
         for clip in search_results:
-            start={clip.start}
-            end={clip.end}
-            edit_demand_final.append([instances[i][0], start, end])
+            print(f"video_id={clip.video_id} score={clip.score} start={clip.start} end={clip.end} confidence={clip.confidence}")
 
-def run_edits(commands):
-    for command in commands:
-        
+    print(edit_demand_final)
+
+#def run_edits(commands):
+ #   for command in commands:      
+
+timestamp_extraction(intent_extraction(), vid_path)
