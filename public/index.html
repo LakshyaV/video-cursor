@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DaVinci Resolve Studio 20</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Bar -->
+        <div class="top-bar">
+            <div class="top-left">
+                <div class="tab-group">
+                    <button class="tab active">Media Pool</button>
+                    <button class="tab">Effects</button>
+                    <button class="tab">Index</button>
+                    <button class="tab">Sound Library</button>
+                    <button class="tab">Keyframes</button>
+                </div>
+            </div>
+            
+            <div class="top-center">
+                <h1 class="project-title">The Ranch - Short Story</h1>
+                <span class="project-subtitle">Trailer Edit 1.0</span>
+            </div>
+            
+            <div class="top-right">
+                <div class="tab-group">
+                    <button class="tab">Quick Export</button>
+                    <button class="tab">Mixer</button>
+                    <button class="tab">Metadata</button>
+                    <button class="tab active">Inspector</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <!-- Left Panel -->
+            <div class="left-panel">
+                <!-- Media Pool Section -->
+                <div class="media-pool-section">
+                    <div class="folder-tree">
+                        <div class="folder-item active">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>Master / RANCH / A003</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>FOLES</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>GFX</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>ICELAND</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>OLD</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>RANCH</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>BTS</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>A001</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>A002</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>A003</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>A004</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>A005</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>A006</span>
+                        </div>
+                        <div class="folder-item">
+                            <i class="fas fa-chevron-right"></i>
+                            <span>A007</span>
+                        </div>
+                    </div>
+                    
+                    
+                </div>
+                
+                <!-- Toolbox Section -->
+                <div class="toolbox-section">
+                    <div class="toolbox-header">Toolbox</div>
+                    <div class="toolbox-content">
+                        <div class="toolbox-category expanded">
+                            <div class="category-header">
+                                <i class="fas fa-chevron-down"></i>
+                                <span>Video Transitions</span>
+                            </div>
+                            <div class="category-items">
+                                <div class="toolbox-item selected">Dissolve</div>
+                                <div class="toolbox-subcategory">
+                                    <div class="toolbox-item">Additive Dissolve</div>
+                                    <div class="toolbox-item">Bar Dissolve</div>
+                                    <div class="toolbox-item">Cross Dissolve</div>
+                                    <div class="toolbox-item">Dip To Color Dissolve</div>
+                                    <div class="toolbox-item">Non-Additive Dissolve</div>
+                                    <div class="toolbox-item">Smooth Cut</div>
+                                </div>
+                                <div class="toolbox-item">Iris</div>
+                                <div class="toolbox-subcategory">
+                                    <div class="toolbox-item">Arrow Iris</div>
+                                    <div class="toolbox-item">Cross Iris</div>
+                                    <div class="toolbox-item">Diamond Iris</div>
+                                    <div class="toolbox-item">Eye Iris</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="toolbox-category">
+                            <div class="category-header">
+                                <i class="fas fa-chevron-right"></i>
+                                <span>Audio Transitions</span>
+                            </div>
+                        </div>
+                        <div class="toolbox-category">
+                            <div class="category-header">
+                                <i class="fas fa-chevron-right"></i>
+                                <span>Titles</span>
+                            </div>
+                        </div>
+                        <div class="toolbox-category">
+                            <div class="category-header">
+                                <i class="fas fa-chevron-right"></i>
+                                <span>Generators</span>
+                            </div>
+                        </div>
+                        <div class="toolbox-category">
+                            <div class="category-header">
+                                <i class="fas fa-chevron-right"></i>
+                                <span>Effects</span>
+                            </div>
+                        </div>
+                        <div class="toolbox-category">
+                            <div class="category-header">
+                                <i class="fas fa-chevron-right"></i>
+                                <span>Open FX</span>
+                            </div>
+                        </div>
+                        <div class="toolbox-category">
+                            <div class="category-header">
+                                <i class="fas fa-chevron-right"></i>
+                                <span>Audio FX</span>
+                            </div>
+                        </div>
+                        <div class="toolbox-category">
+                            <div class="category-header">
+                                <i class="fas fa-chevron-right"></i>
+                                <span>VST Effects</span>
+                            </div>
+                        </div>
+                        <div class="toolbox-category">
+                            <div class="category-header">
+                                <i class="fas fa-chevron-right"></i>
+                                <span>All Effects</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center Panel - Video Viewer -->
+            <div class="center-panel">
+                <div class="video-viewer">
+                    <div class="video-frame">
+                        <!-- Integrated Toolbar Overlay -->
+                        <div class="video-toolbar">
+                            <div class="toolbar-group">
+                                <button class="toolbar-btn" title="Zoom In">
+                                    <i class="fas fa-search-plus"></i>
+                                </button>
+                                <button class="toolbar-btn" title="Zoom Out">
+                                    <i class="fas fa-search-minus"></i>
+                                </button>
+                                <button class="toolbar-btn" title="Fit to Frame">
+                                    <i class="fas fa-expand-arrows-alt"></i>
+                                </button>
+                            </div>
+                            <div class="toolbar-group">
+                                <button class="toolbar-btn" title="Transform">
+                                    <i class="fas fa-arrows-alt"></i>
+                                </button>
+                                <button class="toolbar-btn" title="Crop">
+                                    <i class="fas fa-crop"></i>
+                                </button>
+                                <button class="toolbar-btn" title="Rotate">
+                                    <i class="fas fa-redo"></i>
+                                </button>
+                            </div>
+                            <div class="toolbar-group">
+                                <span class="zoom-level">100%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="video-content">
+                            <div class="video-overlay">
+                                <div class="safe-area"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Slim Playback Controls -->
+                    <div class="playback-controls">
+                        <div class="playback-group">
+                            <button class="playback-btn" title="Rewind">
+                                <i class="fas fa-backward"></i>
+                            </button>
+                            <button class="playback-btn play-btn" title="Play">
+                                <i class="fas fa-play"></i>
+                            </button>
+                            <button class="playback-btn" title="Fast Forward">
+                                <i class="fas fa-forward"></i>
+                            </button>
+                            <button class="playback-btn" title="Stop">
+                                <i class="fas fa-stop"></i>
+                            </button>
+                        </div>
+                        <div class="playback-group">
+                            <button class="playback-btn" title="Previous Frame">
+                                <i class="fas fa-step-backward"></i>
+                            </button>
+                            <button class="playback-btn" title="Next Frame">
+                                <i class="fas fa-step-forward"></i>
+                            </button>
+                            <button class="playback-btn" title="Loop">
+                                <i class="fas fa-redo"></i>
+                            </button>
+                        </div>
+                        <div class="timecode-display">01:02:36:10</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel -->
+            <div class="right-panel" id="rightPanel">
+                <!-- Inspector Toggle Button -->
+                <button class="inspector-toggle" id="inspectorToggle">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                
+                <!-- Inspector Section -->
+                <div class="inspector-section">
+                    <div class="inspector-tabs">
+                        <button class="inspector-tab active">Video</button>
+                        <button class="inspector-tab">Audio</button>
+                        <button class="inspector-tab">Effects</button>
+                        <button class="inspector-tab">Transition</button>
+                        <button class="inspector-tab">Image</button>
+                        <button class="inspector-tab">File</button>
+                    </div>
+                    
+                    <div class="inspector-content">
+                        <div class="property-group">
+                            <div class="property-header">
+                                <span>Transform</span>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
+                            <div class="property-content">
+                                <div class="property-row">
+                                    <label>Zoom</label>
+                                    <div class="property-values">
+                                        <span>X: 1.000</span>
+                                        <span>Y: 1.000</span>
+                                    </div>
+                                </div>
+                                <div class="property-row">
+                                    <label>Position</label>
+                                    <div class="property-values">
+                                        <span>X: 0.000</span>
+                                        <span>Y: 0.000</span>
+                                    </div>
+                                </div>
+                                <div class="property-row">
+                                    <label>Rotation Angle</label>
+                                    <span>0.000</span>
+                                </div>
+                                <div class="property-row">
+                                    <label>Anchor Point</label>
+                                    <div class="property-values">
+                                        <span>X: 0.500</span>
+                                        <span>Y: 0.500</span>
+                                    </div>
+                                </div>
+                                <div class="property-row">
+                                    <label>Pitch</label>
+                                    <span>0.000</span>
+                                </div>
+                                <div class="property-row">
+                                    <label>Yaw</label>
+                                    <span>0.000</span>
+                                </div>
+                                <div class="property-row">
+                                    <label>Roll</label>
+                                    <span>0.000</span>
+                                </div>
+                                <div class="property-buttons">
+                                    <button class="property-btn">Flip</button>
+                                    <button class="property-btn">Reset</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="property-group">
+                            <div class="property-header">
+                                <span>Smart Reframe</span>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="smart-reframe">
+                                    <label for="smart-reframe"></label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="property-group">
+                            <div class="property-header">
+                                <span>Cropping</span>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="cropping">
+                                    <label for="cropping"></label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="property-group">
+                            <div class="property-header">
+                                <span>Dynamic Zoom</span>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="dynamic-zoom">
+                                    <label for="dynamic-zoom"></label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="property-group">
+                            <div class="property-header">
+                                <span>Composite</span>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
+                            <div class="property-content">
+                                <div class="property-row">
+                                    <label>Composite Mode</label>
+                                    <span>Normal</span>
+                                </div>
+                                <div class="property-row">
+                                    <label>Opacity</label>
+                                    <span>100.00</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="property-group">
+                            <div class="property-header">
+                                <span>Speed Change</span>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="speed-change">
+                                    <label for="speed-change"></label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="property-group">
+                            <div class="property-header">
+                                <span>Stabilization</span>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="stabilization">
+                                    <label for="stabilization"></label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="property-group">
+                            <div class="property-header">
+                                <span>Lens Correction</span>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="lens-correction">
+                                    <label for="lens-correction"></label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Mixer Section -->
+                <div class="mixer-section">
+                    <div class="mixer-header">Mixer</div>
+                    <div class="mixer-channels">
+                        <div class="mixer-channel">
+                            <div class="channel-info">
+                                <div class="channel-label">A1</div>
+                                <div class="channel-name">VO</div>
+                            </div>
+                            <div class="volume-control">
+                                <input type="range" min="0" max="100" value="75" class="slider" id="volA1">
+                                <span class="volume-value">75%</span>
+                            </div>
+                        </div>
+                        <div class="mixer-channel">
+                            <div class="channel-info">
+                                <div class="channel-label">A2</div>
+                                <div class="channel-name">SOUNDTRACK 1</div>
+                            </div>
+                            <div class="volume-control">
+                                <input type="range" min="0" max="100" value="60" class="slider" id="volA2">
+                                <span class="volume-value">60%</span>
+                            </div>
+                        </div>
+                        <div class="mixer-channel">
+                            <div class="channel-info">
+                                <div class="channel-label">Bus1</div>
+                                <div class="channel-name">SHOTRICK</div>
+                            </div>
+                            <div class="volume-control">
+                                <input type="range" min="0" max="100" value="50" class="slider" id="volBus1">
+                                <span class="volume-value">50%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Timeline -->
+        <div class="timeline-container">
+            <div class="timeline-header">
+                <div class="time-ruler">
+                    <div class="time-marker">01:02:16:00</div>
+                    <div class="time-marker">01:02:24:00</div>
+                    <div class="time-marker">01:02:32:00</div>
+                    <div class="time-marker">01:02:40:00</div>
+                    <div class="time-marker">01:02:48:00</div>
+                </div>
+            </div>
+            <div class="timeline">
+                <div class="timeline-scroll-container">
+                    <div class="track-labels">
+                    <div class="track-label broll-track" data-track="v2">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>V2 BROLL</span>
+                    </div>
+                    <div class="track-label video-track" data-track="v1">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>V1 DYLAN</span>
+                    </div>
+                    <div class="track-label voiceover-track" data-track="a1">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>A1 VO</span>
+                    </div>
+                    <div class="track-label music-track" data-track="a2">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>A2 SOUNDTRACK 1</span>
+                    </div>
+                    <div class="track-label audio-track" data-track="a3">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>A3 SOUNDTRACK 2</span>
+                    </div>
+                    <div class="track-label fx-track" data-track="fx1">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>FX1 EFFECTS</span>
+                    </div>
+                    <div class="track-label broll-track" data-track="v3">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>V3 B-ROLL</span>
+                    </div>
+                    <div class="track-label music-track" data-track="a4">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>A4 AMBIENT</span>
+                    </div>
+                    <div class="track-label voiceover-track" data-track="a5">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>A5 NARRATION</span>
+                    </div>
+                </div>
+                
+                <!-- Resize Slider -->
+                <div class="timeline-resize-slider" id="timelineResizeSlider"></div>
+                
+                <div class="timeline-tracks">
+                    <div class="track broll-track" data-track="v2">
+                        <div class="clip broll-clip selected" style="left: 20%; width: 25%;">
+                            <span class="clip-name">A003_0001637_C012.braw</span>
+                        </div>
+                    </div>
+                    <div class="track video-track" data-track="v1">
+                        <div class="clip dialogue-clip" style="left: 10%; width: 30%;">
+                            <span class="clip-name">A003_0001638_C013.braw</span>
+                        </div>
+                    </div>
+                    <div class="track voiceover-track" data-track="a1">
+                        <div class="clip voiceover-clip" style="left: 15%; width: 35%;">
+                            <div class="waveform">
+                                <div class="waveform-bar" style="height: 60%;"></div>
+                                <div class="waveform-bar" style="height: 40%;"></div>
+                                <div class="waveform-bar" style="height: 80%;"></div>
+                                <div class="waveform-bar" style="height: 30%;"></div>
+                                <div class="waveform-bar" style="height: 70%;"></div>
+                                <div class="waveform-bar" style="height: 50%;"></div>
+                                <div class="waveform-bar" style="height: 90%;"></div>
+                                <div class="waveform-bar" style="height: 35%;"></div>
+                            </div>
+                            <span class="clip-name">A001_00151943_C212.braw</span>
+                        </div>
+                    </div>
+                    <div class="track music-track" data-track="a2">
+                        <div class="clip soundtrack-clip" style="left: 25%; width: 20%;">
+                            <div class="waveform">
+                                <div class="waveform-bar" style="height: 45%;"></div>
+                                <div class="waveform-bar" style="height: 65%;"></div>
+                                <div class="waveform-bar" style="height: 25%;"></div>
+                                <div class="waveform-bar" style="height: 85%;"></div>
+                                <div class="waveform-bar" style="height: 55%;"></div>
+                                <div class="waveform-bar" style="height: 75%;"></div>
+                                <div class="waveform-bar" style="height: 40%;"></div>
+                                <div class="waveform-bar" style="height: 60%;"></div>
+                            </div>
+                            <span class="clip-name">A001_00151944_C213.braw</span>
+                        </div>
+                    </div>
+                    <div class="track audio-track" data-track="a3">
+                        <div class="clip foley-clip" style="left: 50%; width: 15%;">
+                            <div class="waveform">
+                                <div class="waveform-bar" style="height: 70%;"></div>
+                                <div class="waveform-bar" style="height: 50%;"></div>
+                                <div class="waveform-bar" style="height: 85%;"></div>
+                                <div class="waveform-bar" style="height: 40%;"></div>
+                                <div class="waveform-bar" style="height: 75%;"></div>
+                                <div class="waveform-bar" style="height: 55%;"></div>
+                                <div class="waveform-bar" style="height: 80%;"></div>
+                                <div class="waveform-bar" style="height: 45%;"></div>
+                            </div>
+                            <span class="clip-name">A001_00151945_C214.braw</span>
+                        </div>
+                    </div>
+                    <div class="track fx-track" data-track="fx1">
+                        <!-- Empty track for effects -->
+                    </div>
+                    <div class="track broll-track" data-track="v3">
+                        <!-- Empty track for B-roll -->
+                    </div>
+                    <div class="track music-track" data-track="a4">
+                        <!-- Empty track for ambient -->
+                    </div>
+                    <div class="track voiceover-track" data-track="a5">
+                        <!-- Empty track for narration -->
+                    </div>
+                </div>
+                </div>
+                
+                <div class="playhead" style="left: 65%;"></div>
+            </div>
+        </div>
+
+        <!-- Bottom Navigation -->
+        <div class="bottom-nav">
+            <div class="nav-modules">
+                <button class="nav-module">
+                    <i class="fas fa-folder"></i>
+                    <span>Media</span>
+                </button>
+                <button class="nav-module">
+                    <i class="fas fa-cut"></i>
+                    <span>Cut</span>
+                </button>
+                <button class="nav-module active">
+                    <i class="fas fa-edit"></i>
+                    <span>Edit</span>
+                </button>
+                <button class="nav-module">
+                    <i class="fas fa-magic"></i>
+                    <span>Fusion</span>
+                </button>
+                <button class="nav-module">
+                    <i class="fas fa-palette"></i>
+                    <span>Color</span>
+                </button>
+                <button class="nav-module">
+                    <i class="fas fa-volume-up"></i>
+                    <span>Fairlight</span>
+                </button>
+                <button class="nav-module">
+                    <i class="fas fa-download"></i>
+                    <span>Deliver</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div class="context-menu" id="contextMenu">
+        <button class="context-menu-item" data-action="minimize">
+            <i class="fas fa-compress-arrows-alt"></i>
+            Minimize Track Height
+        </button>
+        <button class="context-menu-item" data-action="collapse">
+            <i class="fas fa-minus"></i>
+            Collapse Track
+        </button>
+        <button class="context-menu-item" data-action="rename">
+            <i class="fas fa-edit"></i>
+            Rename Track
+        </button>
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item" data-action="color-dialogue">
+            <i class="fas fa-palette"></i>
+            Color: Dialogue
+        </button>
+        <button class="context-menu-item" data-action="color-music">
+            <i class="fas fa-palette"></i>
+            Color: Music
+        </button>
+        <button class="context-menu-item" data-action="color-foley">
+            <i class="fas fa-palette"></i>
+            Color: Foley
+        </button>
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item" data-action="mute">
+            <i class="fas fa-volume-mute"></i>
+            Mute Track
+        </button>
+    </div>
+
+    <!-- Workspace Presets -->
+    <div class="workspace-presets" id="workspacePresets">
+        <div class="preset-item" data-preset="editing">
+            <i class="fas fa-edit"></i>
+            <span>Editing</span>
+        </div>
+        <div class="preset-item" data-preset="color">
+            <i class="fas fa-palette"></i>
+            <span>Color Grading</span>
+        </div>
+        <div class="preset-item" data-preset="minimal">
+            <i class="fas fa-compress"></i>
+            <span>Minimal</span>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
