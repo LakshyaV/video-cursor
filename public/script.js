@@ -1,38 +1,23 @@
-// Professional DaVinci Resolve UI - Enhanced Interactions
+// Enhanced DaVinci Resolve UI with Backend Integration
 document.addEventListener('DOMContentLoaded', function() {
-    // Initialize the interface with enhanced interactions
     initializeInterface();
-    
-    // Set up event listeners with smooth animations
     setupEventListeners();
-    
-    // Initialize audio meters with professional animation
     initializeAudioMeters();
-    
-    // Initialize timeline with enhanced interactions
     initializeTimeline();
-    
-    // Initialize timeline resize functionality
     initializeTimelineResize();
-    
-    // Initialize timeline scrolling
     initializeTimelineScrolling();
-    
-    // Initialize inspector with smooth transitions
     initializeInspector();
-    
-    // Initialize toolbox with professional feel
     initializeToolbox();
-    
-    // Initialize micro-interactions
     initializeMicroInteractions();
-    
-    // Initialize keyboard shortcuts
     initializeKeyboardShortcuts();
-    
-    // Initialize workspace organization features
     initializeWorkspaceOrganization();
+    initializeVideoEditor();
 });
+
+// Backend API configuration
+const API_BASE = '/api';
+let currentVideoId = null;
+let uploadedFiles = new Map();
 
 function initializeInterface() {
     // Set initial time display with smooth animation
@@ -1265,4 +1250,924 @@ function initializeTimelineScrolling() {
     timelineScrollContainer.style.border = 'none';
     
     console.log('Timeline scrolling initialized successfully');
+}
+
+// Video Editor Initialization
+function initializeVideoEditor() {
+    setupFileUpload();
+    setupVideoControls();
+    setupEffectsPanel();
+    setupAudioPanel();
+    setupExportPanel();
+    loadExistingFiles();
+}
+
+// File Upload Setup
+function setupFileUpload() {
+    const dropZone = document.createElement('div');
+    dropZone.className = 'drop-zone';
+    dropZone.innerHTML = `
+        <div class="drop-zone-content">
+            <i class="fas fa-cloud-upload-alt"></i>
+            <h3>Drop video files here or click to browse</h3>
+            <p>Supports MP4, MOV, AVI, MKV</p>
+            <input type="file" id="file-input" accept="video/*,audio/*,.srt" multiple style="display: none;">
+            <button class="upload-btn">Browse Files</button>
+        </div>
+    `;
+    
+    const mediaPool = document.querySelector('.folder-tree');
+    if (mediaPool) {
+        mediaPool.appendChild(dropZone);
+    }
+    
+    const fileInput = document.getElementById('file-input');
+    const uploadBtn = dropZone.querySelector('.upload-btn');
+    
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+    
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('drag-over');
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        handleFiles(e.dataTransfer.files);
+    });
+    
+    fileInput.addEventListener('change', (e) => {
+        handleFiles(e.target.files);
+    });
+}
+
+// Handle File Upload
+async function handleFiles(files) {
+    for (const file of files) {
+        await uploadFile(file);
+    }
+    updateMediaPool();
+}
+
+async function uploadFile(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    showProgress(`Uploading ${file.name}...`);
+    
+    try {
+        const response = await fetch(`${API_BASE}/upload`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) throw new Error('Upload failed');
+        
+        const result = await response.json();
+        uploadedFiles.set(result.file_id, {
+            ...result,
+            type: file.type.startsWith('video/') ? 'video' : 
+                  file.type.startsWith('audio/') ? 'audio' : 'subtitle'
+        });
+        
+        showSuccess(`${file.name} uploaded successfully`);
+        return result.file_id;
+    } catch (error) {
+        showError(`Failed to upload ${file.name}: ${error.message}`);
+    }
+}
+
+// Load Existing Files
+async function loadExistingFiles() {
+    try {
+        const response = await fetch(`${API_BASE}/files`);
+        const data = await response.json();
+        
+        for (const file of data.files) {
+            uploadedFiles.set(file.file_id, file);
+        }
+        updateMediaPool();
+    } catch (error) {
+        console.error('Failed to load files:', error);
+    }
+}
+
+// Update Media Pool Display
+function updateMediaPool() {
+    const mediaPool = document.querySelector('.folder-tree');
+    const existingFiles = mediaPool.querySelectorAll('.media-file');
+    existingFiles.forEach(file => file.remove());
+    
+    uploadedFiles.forEach((file, fileId) => {
+        const fileElement = document.createElement('div');
+        fileElement.className = 'media-file';
+        fileElement.innerHTML = `
+            <div class="file-item" data-file-id="${fileId}">
+                <i class="fas ${getFileIcon(file.type)}"></i>
+                <span class="file-name">${file.filename}</span>
+                <div class="file-actions">
+                    <button class="btn-preview" title="Preview">
+                        <i class="fas fa-play"></i>
+                    </button>
+                    <button class="btn-delete" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        mediaPool.appendChild(fileElement);
+        
+        fileElement.querySelector('.btn-preview').addEventListener('click', () => previewFile(fileId));
+        fileElement.querySelector('.btn-delete').addEventListener('click', () => deleteFile(fileId));
+        fileElement.addEventListener('click', () => selectFile(fileId));
+    });
+}
+
+function getFileIcon(type) {
+    switch(type) {
+        case 'video': return 'fa-video';
+        case 'audio': return 'fa-music';
+        case 'subtitle': return 'fa-closed-captioning';
+        default: return 'fa-file';
+    }
+}
+
+// File Operations
+async function selectFile(fileId) {
+    currentVideoId = fileId;
+    document.querySelectorAll('.file-item').forEach(item => item.classList.remove('selected'));
+    document.querySelector(`[data-file-id="${fileId}"]`).classList.add('selected');
+    
+    const file = uploadedFiles.get(fileId);
+    if (file.type === 'video') {
+        await loadVideoInfo(fileId);
+        updateVideoPlayer(fileId);
+    }
+}
+
+async function loadVideoInfo(fileId) {
+    try {
+        const response = await fetch(`${API_BASE}/info/${fileId}`);
+        const data = await response.json();
+        
+        updateInspectorPanel(data.info);
+    } catch (error) {
+        console.error('Failed to load video info:', error);
+    }
+}
+
+function updateVideoPlayer(fileId) {
+    const videoFrame = document.querySelector('.video-frame');
+    if (videoFrame) {
+        videoFrame.innerHTML = `
+            <video controls class="video-player" src="${API_BASE}/preview/${fileId}">
+                Your browser does not support the video tag.
+            </video>
+        `;
+    }
+}
+
+async function previewFile(fileId) {
+    window.open(`${API_BASE}/preview/${fileId}`, '_blank');
+}
+
+async function deleteFile(fileId) {
+    if (!confirm('Are you sure you want to delete this file?')) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/files/${fileId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            uploadedFiles.delete(fileId);
+            updateMediaPool();
+            showSuccess('File deleted successfully');
+        } else {
+            throw new Error('Delete failed');
+        }
+    } catch (error) {
+        showError(`Failed to delete file: ${error.message}`);
+    }
+}
+
+// Video Controls Setup
+function setupVideoControls() {
+    const trimSection = document.createElement('div');
+    trimSection.className = 'control-section';
+    trimSection.innerHTML = `
+        <h4>Trim Video</h4>
+        <div class="control-group">
+            <label>Start Time:</label>
+            <input type="text" id="trim-start" placeholder="00:00:00" pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}">
+        </div>
+        <div class="control-group">
+            <label>End Time:</label>
+            <input type="text" id="trim-end" placeholder="00:10:00" pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}">
+        </div>
+        <button class="action-btn" onclick="trimVideo()">
+            <i class="fas fa-cut"></i> Trim Video
+        </button>
+    `;
+    
+    addToInspector(trimSection);
+    
+    const spliceSection = document.createElement('div');
+    spliceSection.className = 'control-section';
+    spliceSection.innerHTML = `
+        <h4>Remove Section</h4>
+        <div class="control-group">
+            <label>Remove Start:</label>
+            <input type="text" id="splice-start" placeholder="00:01:00" pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}">
+        </div>
+        <div class="control-group">
+            <label>Remove End:</label>
+            <input type="text" id="splice-end" placeholder="00:02:00" pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}">
+        </div>
+        <button class="action-btn" onclick="spliceVideo()">
+            <i class="fas fa-scissors"></i> Remove Section
+        </button>
+    `;
+    
+    addToInspector(spliceSection);
+}
+
+// Effects Panel Setup
+function setupEffectsPanel() {
+    const effectsSection = document.createElement('div');
+    effectsSection.className = 'control-section';
+    effectsSection.innerHTML = `
+        <h4>Video Effects</h4>
+        <div class="effects-grid">
+            <div class="effect-control">
+                <label>Blur:</label>
+                <input type="range" id="blur" min="0" max="10" step="0.1" value="0">
+                <span id="blur-value">0</span>
+            </div>
+            <div class="effect-control">
+                <label>Brightness:</label>
+                <input type="range" id="brightness" min="-1" max="1" step="0.1" value="0">
+                <span id="brightness-value">0</span>
+            </div>
+            <div class="effect-control">
+                <label>Contrast:</label>
+                <input type="range" id="contrast" min="0" max="2" step="0.1" value="1">
+                <span id="contrast-value">1</span>
+            </div>
+            <div class="effect-control">
+                <label>Saturation:</label>
+                <input type="range" id="saturation" min="0" max="2" step="0.1" value="1">
+                <span id="saturation-value">1</span>
+            </div>
+            <div class="effect-control">
+                <label>Rotation:</label>
+                <input type="range" id="rotation" min="-180" max="180" step="1" value="0">
+                <span id="rotation-value">0°</span>
+            </div>
+        </div>
+        <div class="effect-checkboxes">
+            <label><input type="checkbox" id="zoom"> Zoom Effect</label>
+            <label><input type="checkbox" id="h-flip"> Horizontal Flip</label>
+            <label><input type="checkbox" id="v-flip"> Vertical Flip</label>
+        </div>
+        <div class="effect-filters">
+            <label>Artistic Filter:</label>
+            <select id="artistic-filter">
+                <option value="none">None</option>
+                <option value="black & white">Black & White</option>
+                <option value="sepia">Sepia</option>
+                <option value="vintage">Vintage</option>
+                <option value="negative">Negative</option>
+                <option value="emboss">Emboss</option>
+                <option value="edge detection">Edge Detection</option>
+            </select>
+        </div>
+        <button class="action-btn" onclick="applyEffects()">
+            <i class="fas fa-magic"></i> Apply Effects
+        </button>
+    `;
+    
+    addToInspector(effectsSection);
+    
+    const sliders = effectsSection.querySelectorAll('input[type="range"]');
+    sliders.forEach(slider => {
+        slider.addEventListener('input', function() {
+            const valueSpan = document.getElementById(`${this.id}-value`);
+            if (valueSpan) {
+                valueSpan.textContent = this.id === 'rotation' ? `${this.value}°` : this.value;
+            }
+        });
+    });
+}
+
+// Audio Panel Setup
+function setupAudioPanel() {
+    const audioSection = document.createElement('div');
+    audioSection.className = 'control-section';
+    audioSection.innerHTML = `
+        <h4>Audio Controls</h4>
+        <div class="audio-controls">
+            <button class="action-btn" onclick="extractAudio()">
+                <i class="fas fa-volume-up"></i> Extract Audio
+            </button>
+            <div class="control-group">
+                <label>Background Music:</label>
+                <select id="bg-music-file">
+                    <option value="">Select audio file...</option>
+                </select>
+                <div class="audio-options">
+                    <label>Volume: <input type="range" id="bg-volume" min="0" max="2" step="0.1" value="0.5"></label>
+                    <label><input type="checkbox" id="mix-audio" checked> Mix with original</label>
+                </div>
+                <button class="action-btn" onclick="addBackgroundMusic()">
+                    <i class="fas fa-music"></i> Add Background Music
+                </button>
+            </div>
+            <div class="control-group">
+                <label>Sound Effect:</label>
+                <select id="sound-effect-file">
+                    <option value="">Select audio file...</option>
+                </select>
+                <div class="audio-options">
+                    <label>Start Time (s): <input type="number" id="effect-start" value="0" step="0.1"></label>
+                    <label>Duration (s): <input type="number" id="effect-duration" step="0.1"></label>
+                    <label>Volume: <input type="range" id="effect-volume" min="0" max="2" step="0.1" value="1"></label>
+                </div>
+                <button class="action-btn" onclick="addSoundEffect()">
+                    <i class="fas fa-bell"></i> Add Sound Effect
+                </button>
+            </div>
+            <div class="control-group">
+                <label>Subtitles:</label>
+                <select id="subtitle-file">
+                    <option value="">Select subtitle file...</option>
+                </select>
+                <div class="subtitle-options">
+                    <label><input type="checkbox" id="burn-subtitles"> Burn into video</label>
+                    <label><input type="checkbox" id="auto-transcribe"> Auto-transcribe</label>
+                </div>
+                <button class="action-btn" onclick="addSubtitles()">
+                    <i class="fas fa-closed-captioning"></i> Add Subtitles
+                </button>
+            </div>
+        </div>
+    `;
+    
+    addToInspector(audioSection);
+    updateAudioFileSelects();
+}
+
+// Export Panel Setup
+function setupExportPanel() {
+    const exportSection = document.createElement('div');
+    exportSection.className = 'control-section';
+    exportSection.innerHTML = `
+        <h4>Export Options</h4>
+        <div class="export-controls">
+            <div class="control-group">
+                <label>Video Codec:</label>
+                <select id="video-codec">
+                    <option value="libx264">H.264</option>
+                    <option value="libx265">H.265</option>
+                    <option value="libvpx-vp9">VP9</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Audio Codec:</label>
+                <select id="audio-codec">
+                    <option value="aac">AAC</option>
+                    <option value="mp3">MP3</option>
+                    <option value="opus">Opus</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Quality (CRF):</label>
+                <input type="range" id="quality" min="0" max="51" value="23">
+                <span id="quality-value">23</span>
+            </div>
+            <button class="action-btn" onclick="convertVideo()">
+                <i class="fas fa-download"></i> Convert & Download
+            </button>
+            <div class="gif-controls">
+                <h5>Create GIF</h5>
+                <div class="gif-options">
+                    <label>Start: <input type="text" id="gif-start" placeholder="00:00:00"></label>
+                    <label>Duration: <input type="text" id="gif-duration" placeholder="00:00:10"></label>
+                    <label>Width: <input type="number" id="gif-width" value="320"></label>
+                    <label>Height: <input type="number" id="gif-height" value="240"></label>
+                </div>
+                <button class="action-btn" onclick="createGif()">
+                    <i class="fas fa-image"></i> Create GIF
+                </button>
+            </div>
+        </div>
+    `;
+    
+    addToInspector(exportSection);
+    
+    document.getElementById('quality').addEventListener('input', function() {
+        document.getElementById('quality-value').textContent = this.value;
+    });
+}
+
+function addToInspector(section) {
+    const inspector = document.querySelector('.inspector-content');
+    if (inspector) {
+        inspector.appendChild(section);
+    }
+}
+
+function updateAudioFileSelects() {
+    const selects = ['bg-music-file', 'sound-effect-file', 'subtitle-file'];
+    
+    selects.forEach(selectId => {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        
+        while (select.children.length > 1) {
+            select.removeChild(select.lastChild);
+        }
+        
+        uploadedFiles.forEach((file, fileId) => {
+            if ((selectId.includes('music') || selectId.includes('effect')) && file.type === 'audio') {
+                const option = document.createElement('option');
+                option.value = fileId;
+                option.textContent = file.filename;
+                select.appendChild(option);
+            } else if (selectId.includes('subtitle') && file.type === 'subtitle') {
+                const option = document.createElement('option');
+                option.value = fileId;
+                option.textContent = file.filename;
+                select.appendChild(option);
+            }
+        });
+    });
+}
+
+// Video Processing Functions
+async function trimVideo() {
+    if (!currentVideoId) {
+        showError('Please select a video file first');
+        return;
+    }
+    
+    const startTime = document.getElementById('trim-start').value || '00:00:00';
+    const endTime = document.getElementById('trim-end').value;
+    
+    if (!endTime) {
+        showError('Please specify end time');
+        return;
+    }
+    
+    showProgress('Trimming video...');
+    
+    try {
+        const response = await fetch(`${API_BASE}/trim`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                video_id: currentVideoId,
+                start_time: startTime,
+                end_time: endTime
+            })
+        });
+        
+        if (!response.ok) throw new Error('Trim failed');
+        
+        const result = await response.json();
+        showSuccess('Video trimmed successfully');
+        offerDownload(result.output_id, 'trimmed');
+    } catch (error) {
+        showError(`Trim failed: ${error.message}`);
+    }
+}
+
+async function spliceVideo() {
+    if (!currentVideoId) {
+        showError('Please select a video file first');
+        return;
+    }
+    
+    const removeStart = document.getElementById('splice-start').value;
+    const removeEnd = document.getElementById('splice-end').value;
+    
+    if (!removeStart || !removeEnd) {
+        showError('Please specify start and end times for removal');
+        return;
+    }
+    
+    showProgress('Removing section from video...');
+    
+    try {
+        const formData = new FormData();
+        formData.append('video_id', currentVideoId);
+        formData.append('remove_start_time', removeStart);
+        formData.append('remove_end_time', removeEnd);
+        
+        const response = await fetch(`${API_BASE}/splice`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) throw new Error('Splice failed');
+        
+        const result = await response.json();
+        showSuccess('Section removed successfully');
+        offerDownload(result.output_id, 'spliced');
+    } catch (error) {
+        showError(`Splice failed: ${error.message}`);
+    }
+}
+
+async function applyEffects() {
+    if (!currentVideoId) {
+        showError('Please select a video file first');
+        return;
+    }
+    
+    const effects = {
+        video_id: currentVideoId,
+        blur: parseFloat(document.getElementById('blur').value),
+        brightness: parseFloat(document.getElementById('brightness').value),
+        contrast: parseFloat(document.getElementById('contrast').value),
+        saturation: parseFloat(document.getElementById('saturation').value),
+        rotation: parseFloat(document.getElementById('rotation').value),
+        zoom: document.getElementById('zoom').checked,
+        horizontal_flip: document.getElementById('h-flip').checked,
+        vertical_flip: document.getElementById('v-flip').checked,
+        artistic_filter: document.getElementById('artistic-filter').value
+    };
+    
+    showProgress('Applying effects...');
+    
+    try {
+        const response = await fetch(`${API_BASE}/effects`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(effects)
+        });
+        
+        if (!response.ok) throw new Error('Effects failed');
+        
+        const result = await response.json();
+        showSuccess('Effects applied successfully');
+        offerDownload(result.output_id, 'effects');
+    } catch (error) {
+        showError(`Effects failed: ${error.message}`);
+    }
+}
+
+async function extractAudio() {
+    if (!currentVideoId) {
+        showError('Please select a video file first');
+        return;
+    }
+    
+    showProgress('Extracting audio...');
+    
+    try {
+        const formData = new FormData();
+        formData.append('video_id', currentVideoId);
+        formData.append('audio_codec', 'mp3');
+        formData.append('bitrate', '192k');
+        
+        const response = await fetch(`${API_BASE}/audio/extract`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) throw new Error('Audio extraction failed');
+        
+        const result = await response.json();
+        showSuccess('Audio extracted successfully');
+        offerDownload(result.output_id, 'audio');
+    } catch (error) {
+        showError(`Audio extraction failed: ${error.message}`);
+    }
+}
+
+async function addBackgroundMusic() {
+    if (!currentVideoId) {
+        showError('Please select a video file first');
+        return;
+    }
+    
+    const audioFileId = document.getElementById('bg-music-file').value;
+    if (!audioFileId) {
+        showError('Please select an audio file');
+        return;
+    }
+    
+    const volume = parseFloat(document.getElementById('bg-volume').value);
+    const mix = document.getElementById('mix-audio').checked;
+    
+    showProgress('Adding background music...');
+    
+    try {
+        const response = await fetch(`${API_BASE}/audio/background`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                video_id: currentVideoId,
+                audio_file_id: audioFileId,
+                volume: volume,
+                mix: mix
+            })
+        });
+        
+        if (!response.ok) throw new Error('Background music failed');
+        
+        const result = await response.json();
+        showSuccess('Background music added successfully');
+        offerDownload(result.output_id, 'music');
+    } catch (error) {
+        showError(`Background music failed: ${error.message}`);
+    }
+}
+
+async function addSoundEffect() {
+    if (!currentVideoId) {
+        showError('Please select a video file first');
+        return;
+    }
+    
+    const audioFileId = document.getElementById('sound-effect-file').value;
+    if (!audioFileId) {
+        showError('Please select an audio file');
+        return;
+    }
+    
+    const startTime = parseFloat(document.getElementById('effect-start').value);
+    const duration = document.getElementById('effect-duration').value ? 
+                    parseFloat(document.getElementById('effect-duration').value) : null;
+    const volume = parseFloat(document.getElementById('effect-volume').value);
+    
+    showProgress('Adding sound effect...');
+    
+    try {
+        const response = await fetch(`${API_BASE}/audio/effect`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                video_id: currentVideoId,
+                audio_file_id: audioFileId,
+                start_time: startTime,
+                duration: duration,
+                volume: volume,
+                mix: true
+            })
+        });
+        
+        if (!response.ok) throw new Error('Sound effect failed');
+        
+        const result = await response.json();
+        showSuccess('Sound effect added successfully');
+        offerDownload(result.output_id, 'effect');
+    } catch (error) {
+        showError(`Sound effect failed: ${error.message}`);
+    }
+}
+
+async function addSubtitles() {
+    if (!currentVideoId) {
+        showError('Please select a video file first');
+        return;
+    }
+    
+    const autoTranscribe = document.getElementById('auto-transcribe').checked;
+    const burn = document.getElementById('burn-subtitles').checked;
+    
+    let subtitleFileId = null;
+    if (!autoTranscribe) {
+        subtitleFileId = document.getElementById('subtitle-file').value;
+        if (!subtitleFileId) {
+            showError('Please select a subtitle file or enable auto-transcribe');
+            return;
+        }
+    }
+    
+    showProgress(autoTranscribe ? 'Transcribing audio...' : 'Adding subtitles...');
+    
+    try {
+        const response = await fetch(`${API_BASE}/subtitles`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                video_id: currentVideoId,
+                subtitle_file_id: subtitleFileId,
+                burn: burn,
+                auto_transcribe: autoTranscribe,
+                language: 'en-US'
+            })
+        });
+        
+        if (!response.ok) throw new Error('Subtitles failed');
+        
+        const result = await response.json();
+        showSuccess('Subtitles added successfully');
+        offerDownload(result.output_id, 'subtitles');
+    } catch (error) {
+        showError(`Subtitles failed: ${error.message}`);
+    }
+}
+
+async function convertVideo() {
+    if (!currentVideoId) {
+        showError('Please select a video file first');
+        return;
+    }
+    
+    const videoCodec = document.getElementById('video-codec').value;
+    const audioCodec = document.getElementById('audio-codec').value;
+    const quality = document.getElementById('quality').value;
+    
+    showProgress('Converting video...');
+    
+    try {
+        const formData = new FormData();
+        formData.append('video_id', currentVideoId);
+        formData.append('video_codec', videoCodec);
+        formData.append('audio_codec', audioCodec);
+        formData.append('quality', quality);
+        
+        const response = await fetch(`${API_BASE}/convert`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) throw new Error('Conversion failed');
+        
+        const result = await response.json();
+        showSuccess('Video converted successfully');
+        offerDownload(result.output_id, 'converted');
+    } catch (error) {
+        showError(`Conversion failed: ${error.message}`);
+    }
+}
+
+async function createGif() {
+    if (!currentVideoId) {
+        showError('Please select a video file first');
+        return;
+    }
+    
+    const startTime = document.getElementById('gif-start').value || '00:00:00';
+    const duration = document.getElementById('gif-duration').value || '00:00:10';
+    const width = parseInt(document.getElementById('gif-width').value);
+    const height = parseInt(document.getElementById('gif-height').value);
+    
+    showProgress('Creating GIF...');
+    
+    try {
+        const formData = new FormData();
+        formData.append('video_id', currentVideoId);
+        formData.append('start_time', startTime);
+        formData.append('duration', duration);
+        formData.append('width', width);
+        formData.append('height', height);
+        
+        const response = await fetch(`${API_BASE}/gif`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) throw new Error('GIF creation failed');
+        
+        const result = await response.json();
+        showSuccess('GIF created successfully');
+        offerDownload(result.output_id, 'gif');
+    } catch (error) {
+        showError(`GIF creation failed: ${error.message}`);
+    }
+}
+
+// Utility Functions
+function offerDownload(outputId, type) {
+    const downloadBtn = document.createElement('button');
+    downloadBtn.className = 'download-btn';
+    downloadBtn.innerHTML = `<i class="fas fa-download"></i> Download ${type}`;
+    downloadBtn.onclick = () => window.open(`${API_BASE}/download/${outputId}`, '_blank');
+    
+    const existingBtn = document.querySelector('.download-btn');
+    if (existingBtn) existingBtn.remove();
+    
+    document.querySelector('.inspector-content').appendChild(downloadBtn);
+}
+
+function showProgress(message) {
+    const notification = createNotification(message, 'progress');
+    showNotification(notification);
+}
+
+function showSuccess(message) {
+    const notification = createNotification(message, 'success');
+    showNotification(notification);
+}
+
+function showError(message) {
+    const notification = createNotification(message, 'error');
+    showNotification(notification);
+}
+
+function createNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.innerHTML = `
+        <i class="fas ${type === 'success' ? 'fa-check' : type === 'error' ? 'fa-times' : 'fa-spinner fa-spin'}"></i>
+        <span>${message}</span>
+    `;
+    return notification;
+}
+
+function showNotification(notification) {
+    let container = document.querySelector('.notifications');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'notifications';
+        document.body.appendChild(container);
+    }
+    
+    container.appendChild(notification);
+    
+    if (!notification.classList.contains('progress')) {
+        setTimeout(() => {
+            notification.remove();
+        }, 5000);
+    }
+}
+
+function updateInspectorPanel(mediaInfo) {
+    const inspector = document.querySelector('.inspector-content');
+    let infoSection = inspector.querySelector('.media-info-section');
+    
+    if (!infoSection) {
+        infoSection = document.createElement('div');
+        infoSection.className = 'media-info-section control-section';
+        inspector.insertBefore(infoSection, inspector.firstChild);
+    }
+    
+    if (mediaInfo) {
+        const format = mediaInfo.format;
+        const videoStream = mediaInfo.streams.find(s => s.codec_type === 'video');
+        const audioStream = mediaInfo.streams.find(s => s.codec_type === 'audio');
+        
+        infoSection.innerHTML = `
+            <h4>Media Information</h4>
+            <div class="info-grid">
+                <div class="info-item">
+                    <label>Duration:</label>
+                    <span>${formatDuration(parseFloat(format.duration))}</span>
+                </div>
+                ${videoStream ? `
+                    <div class="info-item">
+                        <label>Resolution:</label>
+                        <span>${videoStream.width}x${videoStream.height}</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Frame Rate:</label>
+                        <span>${eval(videoStream.r_frame_rate).toFixed(2)} fps</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Video Codec:</label>
+                        <span>${videoStream.codec_name}</span>
+                    </div>
+                ` : ''}
+                ${audioStream ? `
+                    <div class="info-item">
+                        <label>Audio Codec:</label>
+                        <span>${audioStream.codec_name}</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Sample Rate:</label>
+                        <span>${audioStream.sample_rate} Hz</span>
+                    </div>
+                ` : ''}
+                <div class="info-item">
+                    <label>File Size:</label>
+                    <span>${formatBytes(parseInt(format.size))}</span>
+                </div>
+            </div>
+        `;
+    }
+}
+
+function formatDuration(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }

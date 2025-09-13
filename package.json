@@ -1,20 +1,62 @@
 {
-  "name": "davinci-resolve-ui",
-  "version": "1.0.0",
-  "description": "A modern UI replica of DaVinci Resolve video editing interface",
-  "main": "server.js",
+  "name": "professional-video-editor",
+  "version": "2.0.0",
+  "description": "Professional AI-powered video editing platform with Python FastAPI backend",
+  "main": "backend/server.py",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "./start.sh",
+    "dev": "./start.sh",
+    "install-deps": "cd backend && pip install -r requirements.txt",
+    "setup": "chmod +x start.sh && ./start.sh"
+  },
+  "keywords": [
+    "video-editing",
+    "ai-powered",
+    "fastapi",
+    "python",
+    "ffmpeg",
+    "computer-vision",
+    "object-detection",
+    "transcription",
+    "video-effects"
+  ],
+  "author": "Professional Video Editor Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "video-cursor"
+  },
+  "engines": {
+    "python": ">=3.8"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "path": "^0.12.7"
+    "note": "All dependencies are now managed via Python requirements.txt in the backend folder"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "note": "No Node.js dependencies - using pure Python FastAPI backend"
   },
-  "keywords": ["video-editor", "ui", "davinci-resolve", "interface"],
-  "author": "Your Name",
-  "license": "MIT"
+  "python-requirements": [
+    "fastapi>=0.115.5",
+    "uvicorn>=0.32.1",
+    "python-multipart",
+    "python-dotenv",
+    "cohere>=5.0.0",
+    "twelvelabs>=1.0.1",
+    "ffmpeg-python",
+    "opencv-python",
+    "speechrecognition",
+    "moviepy",
+    "numpy",
+    "pillow",
+    "pydub",
+    "soundfile",
+    "librosa",
+    "nltk",
+    "face-recognition",
+    "dlib",
+    "ultralytics",
+    "mediapipe",
+    "requests",
+    "aiofiles"
+  ]
 }
