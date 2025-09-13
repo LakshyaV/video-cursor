@@ -3,6 +3,14 @@
 import cohere
 import os
 from dotenv import load_dotenv
+from twelvelabs import TwelveLabs
+from twelvelabs.indexes import IndexesCreateRequestModelsItem
+from twelvelabs.tasks import TasksRetrieveResponse
+from glob import glob
+import vague_or_nah
+load_dotenv()
+
+vid_path = vague_or_nah.upload_video()
 
 def intent_extraction():
     load_dotenv()
@@ -30,8 +38,35 @@ def intent_extraction():
     print(edit_demands)
 
 
-def timestamp_extraction(instances):
-    pass
+def timestamp_extraction(instances, vid_path):
+    edit_demand_final = []
+    client = TwelveLabs(api_key=os.getenv("api_key_1"))
+    index = client.indexes.create(
+        index_name="index_name",
+        models=[
+            IndexesCreateRequestModelsItem(
+                model_name="pegasus1.2", model_options=["visual", "audio"]
+            ),
+            IndexesCreateRequestModelsItem(
+                model_name="marengo2.7",
+                model_options=["visual", "audio"],
+            )
+        ]
 
-def run_edits(timestamp, commands):
-    pass
+    )
+
+    for i in range(len(instances)):
+        query = instances[i][1]
+        search_results = client.search.query(
+            index_id=index.id,
+            query_text=query,
+            search_options=["visual", "audio"]
+            )
+        for clip in search_results:
+            start={clip.start}
+            end={clip.end}
+            edit_demand_final.append([instances[i][0], start, end])
+
+def run_edits(commands):
+    for command in commands:
+        

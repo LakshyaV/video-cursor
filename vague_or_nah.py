@@ -1,8 +1,36 @@
 # The purpose of this file is to refine user prompt and check whether it is vague or not.
 
+from xmlrpc import client
 import cohere
 import os
 from dotenv import load_dotenv
+from twelvelabs import TwelveLabs
+from twelvelabs.indexes import IndexesCreateRequestModelsItem
+from twelvelabs.tasks import TasksRetrieveResponse
+from glob import glob
+from dotenv import load_dotenv
+load_dotenv()
+
+def upload_video():
+    client = TwelveLabs(api_key=os.getenv("api_key_1"))
+    index = client.indexes.create(
+        index_name="index_name",
+        models=[
+            IndexesCreateRequestModelsItem(
+                model_name="pegasus1.2", model_options=["visual", "audio"]
+            ),
+            IndexesCreateRequestModelsItem(
+                model_name="marengo2.7",
+                model_options=["visual", "audio"],
+            )
+        ]
+    )
+    video_files = glob(r"C:/Users/prabh/Desktop/videocursor/output_fixed1.mp4")
+    for video_file in video_files:
+        print(f"Uploading {video_file}")
+        with open(video_file, "rb") as f:
+            task = client.tasks.create(index_id=index.id, video_file=f)
+            return f
 
 def vague_or_specific():
     load_dotenv()
@@ -21,7 +49,7 @@ def vague_or_specific():
         model="command-a-03-2025",
         messages=[{"role": "user", "content": prompt}]
     )
-    # Extract and print only the answer text
+
     if hasattr(response, 'text'):
         print(response.text.strip())
     elif hasattr(response, 'message') and hasattr(response.message, 'content'):
@@ -30,6 +58,3 @@ def vague_or_specific():
                 print(item.text.strip())
     else:
         print(response)
-
-if __name__ == "__main__":
-    main()
