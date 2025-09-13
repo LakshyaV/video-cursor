@@ -15,7 +15,7 @@ load_dotenv()
 def upload_video():
     client = TwelveLabs(api_key=os.getenv("api_key_1"))
     index = client.indexes.create(
-        index_name="jamalkl",
+        index_name="plsbrojij",
         models=[
             IndexesCreateRequestModelsItem(
                 model_name="pegasus1.2", model_options=["visual", "audio"]
@@ -26,7 +26,7 @@ def upload_video():
             )
         ]
     )
-    video_files = glob(r"C:/Users/prabh/Desktop/videocursor/output_fixed1.mp4")
+    video_files = glob(r"C:/Users/prabh/Desktop/video-cursor/output_converted1.mp4")
     for video_file in video_files:
         print(f"Uploading {video_file}")
         with open(video_file, "rb") as f:
