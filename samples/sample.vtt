@@ -1,0 +1,31 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:03.000
+Welcome to the FFmpeg Demo Application
+
+00:00:03.000 --> 00:00:06.000
+This is a sample WebVTT subtitle file
+
+00:00:06.000 --> 00:00:09.000
+You can use this to test subtitle features
+
+00:00:09.000 --> 00:00:12.000
+Try burning subtitles into your videos
+
+00:00:12.000 --> 00:00:15.000
+Or extract subtitles from existing videos
+
+00:00:15.000 --> 00:00:18.000
+Convert between different subtitle formats
+
+00:00:18.000 --> 00:00:21.000
+And much more with FFmpeg!
+
+00:00:21.000 --> 00:00:24.000
+Enjoy exploring video processing!
+
+00:00:24.000 --> 00:00:27.000
+This subtitle file was created automatically
+
+00:00:27.000 --> 00:00:30.000
+For testing purposes only
