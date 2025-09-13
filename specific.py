@@ -68,9 +68,17 @@ def timestamp_extraction(instances, vid_path):
             query_text=query,
             search_options=["visual", "audio"]
         )
-        for clip in search_results:
-            print(f"video_id={clip.video_id} score={clip.score} start={clip.start} end={clip.end} confidence={clip.confidence}")
-
+        print("Search results type:", type(search_results))
+        print("Search results:", search_results)
+        
+        # Convert SyncPager to list to get all results
+        clips = list(search_results)
+        print(f"Found {len(clips)} clips")
+        
+        for clip in clips:
+            edit_demand_final.append(clip.start)
+            edit_demand_final.append(clip.end)
+            break
     print(edit_demand_final)
 
 #def run_edits(commands):
