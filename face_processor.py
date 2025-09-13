@@ -1,7 +1,20 @@
 import cv2
 import numpy as np
 import os
+import glob
 from collections import defaultdict
+
+try:
+    import face_recognition
+    FACE_RECOGNITION_AVAILABLE = True
+except ImportError:
+    FACE_RECOGNITION_AVAILABLE = False
+
+try:
+    from sklearn.metrics.pairwise import cosine_similarity
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
 
 class FaceTracker:
     def __init__(self):
@@ -112,10 +125,215 @@ class FaceProcessor:
         
         return list(unique_faces.keys())
     
+    def get_detected_faces(self, output_folder="detected_faces"):
+        if not os.path.exists(output_folder):
+            return []
+        
+        face_files = glob.glob(os.path.join(output_folder, "face_*.jpg"))
+        return sorted(face_files)
+    
+    def find_similar_face_from_image(self, input_image_path, output_folder="detected_faces", threshold=0.6, method="embedding"):
+        if isinstance(input_image_path, str):
+            query_img = cv2.imread(input_image_path)
+        else:
+            query_img = input_image_path
+        
+        if query_img is None:
+            return None
+        
+        if method == "embedding" and FACE_RECOGNITION_AVAILABLE:
+            return self._find_similar_face_embedding(query_img, output_folder, threshold)
+        elif method == "cosine":
+            return self._find_similar_face_cosine(query_img, output_folder, threshold)
+        else:
+            return self._find_similar_face_histogram(query_img, output_folder, threshold)
+    
+    def _find_similar_face_embedding(self, query_img, output_folder, threshold):
+        query_rgb = cv2.cvtColor(query_img, cv2.COLOR_BGR2RGB)
+        query_encodings = face_recognition.face_encodings(query_rgb)
+        
+        if not query_encodings:
+            if self.verbose:
+                print("No face found in query image")
+            return None
+        
+        query_encoding = query_encodings[0]
+        
+        best_match = None
+        best_distance = float('inf')
+        
+        detected_faces = self.get_detected_faces(output_folder)
+        
+        for face_path in detected_faces:
+            face_img = cv2.imread(face_path)
+            if face_img is None:
+                continue
+            
+            face_rgb = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
+            face_encodings = face_recognition.face_encodings(face_rgb)
+            
+            if not face_encodings:
+                continue
+            
+            face_encoding = face_encodings[0]
+            distance = face_recognition.face_distance([query_encoding], face_encoding)[0]
+            
+            if distance < best_distance and distance < threshold:
+                best_distance = distance
+                best_match = os.path.basename(face_path).split('.')[0]
+        
+        if self.verbose and best_match:
+            print(f"Best face match: {best_match} with distance: {best_distance:.3f}")
+        
+        return best_match
+    
+    def _find_similar_face_histogram(self, query_img, output_folder, threshold):
+        query_gray = cv2.cvtColor(query_img, cv2.COLOR_BGR2GRAY)
+        query_hist = cv2.calcHist([query_gray], [0], None, [256], [0, 256])
+        
+        best_match = None
+        best_score = 0
+        
+        detected_faces = self.get_detected_faces(output_folder)
+        
+        for face_path in detected_faces:
+            face_img = cv2.imread(face_path)
+            if face_img is None:
+                continue
+            
+            face_gray = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
+            face_resized = cv2.resize(face_gray, (query_gray.shape[1], query_gray.shape[0]))
+            face_hist = cv2.calcHist([face_resized], [0], None, [256], [0, 256])
+            
+            score = cv2.compareHist(query_hist, face_hist, cv2.HISTCMP_CORREL)
+            
+            if score > best_score and score > threshold:
+                best_score = score
+                best_match = os.path.basename(face_path).split('.')[0]
+        
+        return best_match
+    
+    def _find_similar_face_cosine(self, query_img, output_folder, threshold):
+        query_features = self._extract_face_features(query_img)
+        if query_features is None:
+            return None
+        
+        best_match = None
+        best_score = 0
+        
+        detected_faces = self.get_detected_faces(output_folder)
+        
+        for face_path in detected_faces:
+            face_img = cv2.imread(face_path)
+            if face_img is None:
+                continue
+            
+            face_features = self._extract_face_features(face_img)
+            if face_features is None:
+                continue
+            
+            if SKLEARN_AVAILABLE:
+                score = cosine_similarity([query_features], [face_features])[0][0]
+            else:
+                score = self._cosine_similarity_manual(query_features, face_features)
+            
+            if score > best_score and score > threshold:
+                best_score = score
+                best_match = os.path.basename(face_path).split('.')[0]
+        
+        return best_match
+    
+    def _extract_face_features(self, face_img):
+        gray = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
+        resized = cv2.resize(gray, (64, 64))
+        
+        lbp_features = self._compute_lbp(resized)
+        hog_features = self._compute_hog(resized)
+        color_features = self._compute_color_features(face_img)
+        
+        features = np.concatenate([lbp_features, hog_features, color_features])
+        return features / np.linalg.norm(features)
+    
+    def _compute_lbp(self, gray_img):
+        height, width = gray_img.shape
+        lbp_img = np.zeros_like(gray_img)
+        
+        for i in range(1, height-1):
+            for j in range(1, width-1):
+                center = gray_img[i, j]
+                code = 0
+                code |= (gray_img[i-1, j-1] >= center) << 7
+                code |= (gray_img[i-1, j] >= center) << 6
+                code |= (gray_img[i-1, j+1] >= center) << 5
+                code |= (gray_img[i, j+1] >= center) << 4
+                code |= (gray_img[i+1, j+1] >= center) << 3
+                code |= (gray_img[i+1, j] >= center) << 2
+                code |= (gray_img[i+1, j-1] >= center) << 1
+                code |= (gray_img[i, j-1] >= center) << 0
+                lbp_img[i, j] = code
+        
+        hist, _ = np.histogram(lbp_img.ravel(), bins=256, range=(0, 256))
+        return hist.astype(np.float32)
+    
+    def _compute_hog(self, gray_img):
+        gx = cv2.Sobel(gray_img, cv2.CV_32F, 1, 0, ksize=1)
+        gy = cv2.Sobel(gray_img, cv2.CV_32F, 0, 1, ksize=1)
+        
+        magnitude = np.sqrt(gx**2 + gy**2)
+        angle = np.arctan2(gy, gx) * 180 / np.pi
+        angle[angle < 0] += 180
+        
+        hist, _ = np.histogram(angle.ravel(), bins=9, range=(0, 180), weights=magnitude.ravel())
+        return hist.astype(np.float32)
+    
+    def _compute_color_features(self, color_img):
+        hsv = cv2.cvtColor(color_img, cv2.COLOR_BGR2HSV)
+        
+        h_hist = cv2.calcHist([hsv], [0], None, [50], [0, 180])
+        s_hist = cv2.calcHist([hsv], [1], None, [32], [0, 256])
+        v_hist = cv2.calcHist([hsv], [2], None, [32], [0, 256])
+        
+        return np.concatenate([h_hist.flatten(), s_hist.flatten(), v_hist.flatten()])
+    
+    def _cosine_similarity_manual(self, vec1, vec2):
+        dot_product = np.dot(vec1, vec2)
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
+        
+        if norm1 == 0 or norm2 == 0:
+            return 0
+        
+        return dot_product / (norm1 * norm2)
+    
+    def set_target_face_from_image(self, input_image_path, output_folder="detected_faces", method="embedding"):
+        target_id = self.find_similar_face_from_image(input_image_path, output_folder, method=method)
+        if target_id:
+            self.set_target_face(target_id)
+            if self.verbose:
+                print(f"Set target face to: {target_id} using {method} method")
+            return target_id
+        elif self.verbose:
+            print(f"No similar face found using {method} method")
+        return None
+    
+    def set_target_face_from_detected(self, face_filename, output_folder="detected_faces"):
+        face_path = os.path.join(output_folder, face_filename)
+        if os.path.exists(face_path):
+            face_id = face_filename.split('.')[0]
+            self.set_target_face(face_id)
+            
+            face_img = cv2.imread(face_path)
+            self.face_tracker.add_face_template(face_id, face_img)
+            
+            if self.verbose:
+                print(f"Set target face to: {face_id}")
+            return face_id
+        return None
+
     def set_target_face(self, face_id):
         self.target_face_id = face_id
         if self.verbose:
-            print(f"Target face set to: face_{face_id}")
+            print(f"Target face set to: {face_id}")
         return self
     
     def _faces_similar(self, face1, face2, threshold=0.6):
@@ -220,10 +438,11 @@ class FaceProcessor:
     
     def _apply_blur_to_faces(self, frame, faces, target_face):
         if self.target_face_id is not None:
-            x, y, w, h = target_face
-            face_region = frame[y:y+h, x:x+w]
-            blurred_face = cv2.GaussianBlur(face_region, (self.blur_strength, self.blur_strength), 0)
-            frame[y:y+h, x:x+w] = blurred_face
+            for (x, y, w, h) in faces:
+                if (x, y, w, h) != target_face:
+                    face_region = frame[y:y+h, x:x+w]
+                    blurred_face = cv2.GaussianBlur(face_region, (self.blur_strength, self.blur_strength), 0)
+                    frame[y:y+h, x:x+w] = blurred_face
         else:
             for (x, y, w, h) in faces:
                 face_region = frame[y:y+h, x:x+w]
@@ -272,3 +491,31 @@ class FaceProcessor:
     def __del__(self):
         if hasattr(self, 'cap'):
             self.cap.release()
+
+def example_usage():
+    processor = FaceProcessor("test.mp4", verbose=True)
+    
+    processor.extract_faces()
+    
+    detected_faces = processor.get_detected_faces()
+    print(f"Available faces: {detected_faces}")
+    
+    processor.set_target_face_from_detected("face_0.jpg")
+    
+    processor.set_target_face_from_image("reference_face.jpg", method="embedding")
+    
+    processor.enable_face_blur(51).enable_face_zoom(2.5)
+    
+    processor.process_and_save("output_processed.mp4")
+
+def install_requirements():
+    print("To use face embeddings (recommended), install:")
+    print("pip install face-recognition")
+    print("pip install scikit-learn")
+    print("")
+    print("Note: face-recognition requires cmake and dlib")
+    print("On macOS: brew install cmake")
+    print("On Ubuntu: sudo apt-get install cmake libboost-all-dev")
+
+if __name__ == "__main__":
+    example_usage()
