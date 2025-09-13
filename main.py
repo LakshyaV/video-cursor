@@ -15,6 +15,10 @@ index = client.indexes.create(
     models=[
         IndexesCreateRequestModelsItem(
             model_name="pegasus1.2", model_options=["visual", "audio"]
+        ),
+        IndexesCreateRequestModelsItem(
+            model_name="marengo2.7",
+            model_options=["visual", "audio"],
         )
     ]
 )
@@ -27,7 +31,7 @@ for video_file in video_files:
         task = client.tasks.create(index_id=index.id, video_file=f)
     print(f"Task id={task.id}")
     print("Video uploading...")
-    time.sleep(60)
+    time.sleep(120)
     
     # 5. Generate summaries, chapters, and highlights
     res_summary = client.summarize(
@@ -38,3 +42,14 @@ for video_file in video_files:
     )
 
     print(f"Summary: {res_summary.summary}")
+
+def search(query):
+    search_results = client.search.query(
+        index_id=index.id,
+        query_text=query,
+        search_options=["visual", "audio"]
+        )
+    for clip in search_results:  # iterate scores
+        print(f"video_id={clip.video_id} score={clip.score} start={clip.start} end={clip.end} confidence={clip.confidence}")
+
+search("where is the television")
