@@ -41,7 +41,7 @@ def vague_or_specific():
     if not api_key:
         print("Error: COHERE_API_KEY not found in .env file.")
         return
-    co = cohere.ClientV2(api_key)
+    co = cohere.Client(api_key)
     user_input = input("Describe your video edit request: ")
     prompt = (
         f"The following is a user request for a video edit: '{user_input}'. "
@@ -49,8 +49,8 @@ def vague_or_specific():
         "Reply with either 'vague' or 'specific'."
     )
     response = co.chat(
-        model="command-a-03-2025",
-        messages=[{"role": "user", "content": prompt}]
+        model="command-r-plus",
+        message=prompt
     )
 
     if hasattr(response, 'text'):
