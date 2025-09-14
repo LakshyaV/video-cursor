@@ -1386,7 +1386,7 @@ function updateVideoPlayer(fileId) {
             <video 
                 id="mainVideoPlayer" 
                 controls 
-                style="width: 100%; height: 100%; object-fit: contain; background: #000; border: 2px solid #4a9eff;"
+                style="max-width: 100%; max-height: 100%; width: 100vh; height: 100vh; object-fit: contain; background: #000; border: 2px solid #4a9eff;"
                 onloadstart="console.log('Original video loading started')"
                 oncanplay="console.log('Original video can play')"
                 onerror="console.error('Original video error:', this.error)"
@@ -1428,7 +1428,7 @@ function updateVideoPlayerWithOutput(outputFile) {
             <video 
                 id="mainVideoPlayer" 
                 controls 
-                style="width: 100%; height: 100%; object-fit: contain; background: #000; border: 2px solid #28a745;"
+                style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; background: #000; border: 2px solid #28a745;"
                 onloadstart="console.log('Processed video loading started:', '${videoUrl}')"
                 oncanplay="console.log('Processed video can play:', '${videoUrl}')"
                 onerror="console.error('Processed video error:', this.error, 'URL:', '${videoUrl}')"
@@ -2899,7 +2899,7 @@ function displayVideoInViewer(fileId, fileName) {
             <video 
                 id="mainVideoPlayer" 
                 controls 
-                style="width: 100%; height: 100%; object-fit: contain; background: #000; border: 2px solid #4a9eff;"
+                style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; background: #000; border: 2px solid #4a9eff;"
                 onloadstart="console.log('Video loading started')"
                 oncanplay="console.log('Video can play')"
                 onerror="console.error('Video error:', this.error)"
