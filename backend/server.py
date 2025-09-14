@@ -10,14 +10,21 @@ import shutil
 import uuid
 from pathlib import Path
 import json
+import re
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import time
 
 # Import all backend modules
-from utils import FFmpegUtils
-from object import ObjectTracker
-import output_utils
+try:
+    from .utils import FFmpegUtils
+    from .object import ObjectTracker
+    from . import output_utils
+except ImportError:
+    # Fallback when running as a script (no package context)
+    from utils import FFmpegUtils
+    from object import ObjectTracker
+    import output_utils
 import cohere
 from twelvelabs import TwelveLabs
 from twelvelabs.indexes import IndexesCreateRequestModelsItem
@@ -933,6 +940,116 @@ def extract_response_text(response) -> str:
                 return item.text
     return str(response)
 
+# ---------- Internal helpers for AI edit processing ----------
+def _get_video_duration_seconds(path: str) -> Optional[float]:
+    """Return duration in seconds if available via ffprobe output."""
+    try:
+        result = ffmpeg_utils.get_media_info(str(path))
+        if not result.get("success"):
+            return None
+        info = result.get("info", {})
+        # Prefer format.duration
+        fmt = info.get("format") if isinstance(info, dict) else None
+        if isinstance(fmt, dict) and "duration" in fmt:
+            try:
+                return float(fmt["duration"])
+            except Exception:
+                pass
+        # Fallback: any stream.duration
+        for s in info.get("streams", []) if isinstance(info, dict) else []:
+            if isinstance(s, dict) and "duration" in s:
+                try:
+                    return float(s["duration"])
+                except Exception:
+                    continue
+    except Exception:
+        return None
+    return None
+
+def _parse_time_token(token: str) -> Optional[float]:
+    """Parse a time token like '01:23:45', '1:23', '90s', '2m', '1.5h' into seconds."""
+    t = (token or '').strip().lower()
+    # HH:MM:SS(.ms) or MM:SS(.ms)
+    if re.match(r'^\d{1,2}:\d{2}(:\d{2}(?:\.\d+)?)?$', t):
+        parts = t.split(':')
+        try:
+            if len(parts) == 3:
+                hours = int(parts[0]); minutes = int(parts[1]); seconds = float(parts[2])
+                return hours * 3600 + minutes * 60 + seconds
+            if len(parts) == 2:
+                minutes = int(parts[0]); seconds = float(parts[1])
+                return minutes * 60 + seconds
+        except Exception:
+            return None
+    m = re.match(r'^(\d+(?:\.\d+)?)(\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes|s|sec|secs|second|seconds))?$', t)
+    if m:
+        value = float(m.group(1))
+        unit = (m.group(3) or 's').lower()
+        if unit.startswith('h'):
+            return value * 3600
+        if unit.startswith('m'):
+            return value * 60
+        return value
+    return None
+
+def _parse_location_range(text: str, duration: Optional[float]) -> Optional[tuple[float, float]]:
+    """Parse a free-text location description into a (start,end) in seconds."""
+    if not text:
+        return None
+    t = text.strip().lower()
+    # first/last/middle patterns
+    m = re.search(r'first\s+(\d+(?:\.\d+)?)\s*seconds?', t)
+    if m:
+        secs = float(m.group(1))
+        return (0.0, max(0.0, secs))
+    m = re.search(r'last\s+(\d+(?:\.\d+)?)\s*seconds?', t)
+    if m and duration is not None:
+        secs = float(m.group(1))
+        start = max(0.0, float(duration) - secs)
+        return (start, float(duration))
+    m = re.search(r'middle\s+(\d+(?:\.\d+)?)\s*seconds?', t)
+    if m and duration is not None:
+        secs = float(m.group(1))
+        start = max(0.0, float(duration) / 2.0 - secs / 2.0)
+        end = min(float(duration), start + secs)
+        return (start, end)
+    # at X for Y seconds
+    m = re.search(r'(?:at|from)\s+([^\s,]+)\s+(?:for)\s+(\d+(?:\.\d+)?)\s*seconds?', t)
+    if m:
+        start_sec = _parse_time_token(m.group(1))
+        dur_sec = float(m.group(2))
+        if start_sec is not None:
+            return (max(0.0, start_sec), max(0.0, start_sec + dur_sec))
+    # generic range: X to Y or X - Y
+    m = re.search(r'([^\s,]+)\s*(?:to|-)\s*([^\s,]+)', t)
+    if m:
+        s1 = _parse_time_token(m.group(1))
+        s2 = _parse_time_token(m.group(2))
+        if s1 is not None and s2 is not None and s2 > s1:
+            return (max(0.0, s1), s2)
+        # Interpret "to Y" with missing or zero start as 0→Y
+        if (m.group(1) in {"to", "0", "00:00", "00:00:00"} or s1 == 0) and s2 is not None and s2 > 0:
+            return (0.0, s2)
+    # handle phrasing like "trim to 5 seconds" => 0→5s
+    m = re.search(r'(?:to|upto|up to)\s+(\d+(?:\.\d+)?)\s*seconds?', t)
+    if m:
+        secs = float(m.group(1))
+        if secs > 0:
+            return (0.0, secs)
+    # any two time-like tokens
+    tokens = re.findall(r'(\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?|\d+(?:\.\d+)?\s*(?:h|hr|hrs|hour|hours|m|min|mins|minute|minutes|s|sec|secs|second|seconds))', t)
+    if len(tokens) >= 2:
+        s1 = _parse_time_token(tokens[0])
+        s2 = _parse_time_token(tokens[1])
+        if s1 is not None and s2 is not None and s2 > s1:
+            return (max(0.0, s1), s2)
+    # single time token like "5s" can be interpreted as 0→5s
+    if len(tokens) == 1:
+        s = _parse_time_token(tokens[0])
+        if s is not None and s > 0:
+            return (0.0, s)
+    return None
+
 async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
     """Process vague editing request using AI and execute the editing"""
     print(f"🎬 Processing vague request: {prompt}")
@@ -1047,9 +1164,8 @@ async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
                 print(f"🔍 Trimming last {seconds_to_trim} seconds")
                 
                 # Get video duration to calculate duration to keep
-                media_info = ffmpeg_utils.get_media_info(str(input_path))
-                if media_info.get("success") and "duration" in media_info.get("info", {}):
-                    video_duration = float(media_info["info"]["duration"])
+                video_duration = _get_video_duration_seconds(str(input_path))
+                if video_duration is not None:
                     duration_to_keep = video_duration - seconds_to_trim
                     
                     # Convert to HH:MM:SS format
@@ -1063,7 +1179,8 @@ async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
                         str(input_path),
                         str(output_path),
                         start_time_str,
-                        duration_str
+                        duration_str,
+                        precise=True
                     )
                     print(f"✂️ Trim result: {result}")
                 else:
@@ -1076,9 +1193,8 @@ async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
                 print(f"🔍 Trimming first {seconds_to_trim} seconds")
                 
                 # Get video duration to calculate remaining duration
-                media_info = ffmpeg_utils.get_media_info(str(input_path))
-                if media_info.get("success") and "duration" in media_info.get("info", {}):
-                    video_duration = float(media_info["info"]["duration"])
+                video_duration = _get_video_duration_seconds(str(input_path))
+                if video_duration is not None:
                     duration_to_keep = video_duration - seconds_to_trim
                     
                     # Convert to HH:MM:SS format
@@ -1092,7 +1208,8 @@ async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
                         str(input_path),
                         str(output_path),
                         start_time_str,
-                        duration_str
+                        duration_str,
+                        precise=True
                     )
                     print(f"✂️ Trim result: {result}")
                 else:
@@ -1208,64 +1325,49 @@ async def process_specific_request(prompt: str, video_path: str) -> Dict[str, An
                 "error": "No valid commands could be extracted from the prompt"
             }
         
-        # Step 2: Generate timestamps using TwelveLabs (similar to timestamp_extraction in specific.py)
+        # Step 2: Generate timestamps using robust parsing of locations
         print("🔍 Starting timestamp extraction...")
         
-        # For now, we'll skip TwelveLabs integration and use simple parsing
-        # This can be enhanced later to include actual video search
+        # Get duration once
+        video_duration = _get_video_duration_seconds(video_path)
         edit_commands = {}
         for command, location in instances:
-            # For trim commands, try to parse timing from the prompt
             if "trim" in command.lower() or "cut" in command.lower():
-                # Parse timing from prompt
-                import re
-                
-                # Look for patterns like "last 5 seconds", "first 10 seconds", etc.
-                last_seconds_match = re.search(r'last (\d+(?:\.\d+)?)\s*seconds?', prompt.lower())
-                first_seconds_match = re.search(r'first (\d+(?:\.\d+)?)\s*seconds?', prompt.lower())
-                
-                if last_seconds_match:
-                    seconds_to_trim = float(last_seconds_match.group(1))
-                    # Get video duration
-                    media_info = ffmpeg_utils.get_media_info(video_path)
-                    if media_info.get("success") and "duration" in media_info.get("info", {}):
-                        video_duration = float(media_info["info"]["duration"])
+                rng = _parse_location_range(location, video_duration)
+                if rng is not None:
+                    edit_commands[command] = [rng[0], rng[1]]
+                else:
+                    # Try parsing the original prompt for a range (e.g., "trim to 5 seconds")
+                    rng_from_prompt = _parse_location_range(prompt, video_duration)
+                    if rng_from_prompt is not None:
+                        edit_commands[command] = [rng_from_prompt[0], rng_from_prompt[1]]
+                        continue
+                    last_seconds_match = re.search(r'last (\d+(?:\.\d+)?)\s*seconds?', prompt.lower())
+                    first_seconds_match = re.search(r'first (\d+(?:\.\d+)?)\s*seconds?', prompt.lower())
+                    if last_seconds_match and video_duration is not None:
+                        seconds_to_trim = float(last_seconds_match.group(1))
                         start_time = 0
-                        end_time = video_duration - seconds_to_trim
+                        end_time = max(0.0, float(video_duration) - seconds_to_trim)
                         edit_commands[command] = [start_time, end_time]
-                    else:
-                        print(f"❌ Could not get video duration for trim command")
-                        continue
-                elif first_seconds_match:
-                    seconds_to_trim = float(first_seconds_match.group(1))
-                    # Get video duration for end time
-                    media_info = ffmpeg_utils.get_media_info(video_path)
-                    if media_info.get("success") and "duration" in media_info.get("info", {}):
-                        video_duration = float(media_info["info"]["duration"])
+                    elif first_seconds_match and video_duration is not None:
+                        seconds_to_trim = float(first_seconds_match.group(1))
                         start_time = seconds_to_trim
-                        end_time = video_duration
+                        end_time = float(video_duration)
                         edit_commands[command] = [start_time, end_time]
                     else:
-                        print(f"❌ Could not get video duration for trim command")
-                        continue
-                else:
-                    # Default to middle 10 seconds if no specific timing found
-                    media_info = ffmpeg_utils.get_media_info(video_path)
-                    if media_info.get("success") and "duration" in media_info.get("info", {}):
-                        video_duration = float(media_info["info"]["duration"])
-                        start_time = max(0, video_duration / 2 - 5)
-                        end_time = min(video_duration, start_time + 10)
-                        edit_commands[command] = [start_time, end_time]
-                    else:
-                        edit_commands[command] = [0, 10]  # Fallback
+                        if video_duration is not None:
+                            start_time = max(0.0, float(video_duration) / 2.0 - 5.0)
+                            end_time = min(float(video_duration), start_time + 10.0)
+                            edit_commands[command] = [start_time, end_time]
+                        else:
+                            # Do not default to an arbitrary 10s cut; skip this command if we cannot infer timing
+                            print("⚠️ Skipping trim command because no timing could be inferred and duration is unknown")
+                            continue
             else:
-                # For other commands, apply to entire video or use default timing
-                media_info = ffmpeg_utils.get_media_info(video_path)
-                if media_info.get("success") and "duration" in media_info.get("info", {}):
-                    video_duration = float(media_info["info"]["duration"])
-                    edit_commands[command] = [0, video_duration]
+                if video_duration is not None:
+                    edit_commands[command] = [0, float(video_duration)]
                 else:
-                    edit_commands[command] = [0, 30]  # Default 30 seconds
+                    edit_commands[command] = [0, 30]
         
         print(f"⏰ Generated timestamps: {edit_commands}")
         
@@ -1303,7 +1405,8 @@ async def process_specific_request(prompt: str, video_path: str) -> Dict[str, An
                     str(current_video_path),
                     str(output_path),
                     start_time,
-                    duration_time
+                    duration_time,
+                    precise=True
                 )
                 
                 if result.get("success"):
@@ -1357,7 +1460,7 @@ async def process_specific_request(prompt: str, video_path: str) -> Dict[str, An
                 "type": "specific",
                 "commands": commands_text,
                 "status": "error",
-                "error": "No output files generated"
+                "error": "No output files generated (no valid timing parsed; avoid falling back to 10s)"
             }
             
     except Exception as e:
@@ -1377,8 +1480,11 @@ async def blur_object_in_video(input_path: str, output_path: str, target_object:
         print(f"  Output: {output_path}")
         print(f"  Target: {target_object}")
         
-        # Import ObjectProcessor
-        from object import ObjectProcessor
+        # Import ObjectProcessor (support both package and script run)
+        try:
+            from .object import ObjectProcessor
+        except ImportError:
+            from object import ObjectProcessor
         
         # Check if input file exists
         if not os.path.exists(input_path):
@@ -1430,8 +1536,11 @@ async def zoom_to_object_in_video(input_path: str, output_path: str, target_obje
         print(f"  Target: {target_object}")
         print(f"  Zoom Factor: {zoom_factor}")
         
-        # Import ObjectProcessor
-        from object import ObjectProcessor
+        # Import ObjectProcessor (support both package and script run)
+        try:
+            from .object import ObjectProcessor
+        except ImportError:
+            from object import ObjectProcessor
         
         # Check if input file exists
         if not os.path.exists(input_path):
