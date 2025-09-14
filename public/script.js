@@ -1831,7 +1831,7 @@ function updateVideoPlayerWithOutput(outputFile) {
             <video 
                 id="mainVideoPlayer" 
                 controls 
-                style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; background: #000; border: 2px solid #28a745;"
+                style="max-width: 100%; max-height: 100%; width: 100vh; height: 100vh; object-fit: contain; background: #000; border: 2px solid #28a745;"
                 onloadstart="console.log('Processed video loading started:', '${videoUrl}')"
                 oncanplay="console.log('Processed video can play:', '${videoUrl}')"
                 onerror="console.error('Processed video error:', this.error, 'URL:', '${videoUrl}')"
@@ -2939,14 +2939,20 @@ function initializeChat() {
             'brightness', 'contrast', 'saturation', 'blur', 'sharpen',
             'remove background', 'add text', 'add music', 'volume',
             'fade in', 'fade out', 'transition', 'effect', 'filter',
-            'stabilize', 'denoise', 'color grade', 'enhance'
+            'stabilize', 'denoise', 'color grade', 'enhance',
+            'keep', 'keep only', 'keep the part', 'keep part', 'keep segment', 'keep only the part',
+            'where he says', 'where she says', 'says', 'saying', 'mentions'
         ];
         
         const lowerMessage = message.toLowerCase();
         const foundKeywords = editingKeywords.filter(keyword => lowerMessage.includes(keyword));
+
+        // Extra heuristics for speech-based keeps
+        const speechKeep = /\bkeep( only)? (the )?part where (he|she|they) says\b/.test(lowerMessage);
+        const saysQuoted = /\bsays\s+['"][^'"]+['"]/i.test(message);
         
         console.log('🔍 Found editing keywords:', foundKeywords);
-        const isEditing = foundKeywords.length > 0;
+        const isEditing = foundKeywords.length > 0 || speechKeep || saysQuoted;
         console.log('🎬 Is video editing request:', isEditing);
         
         return isEditing;

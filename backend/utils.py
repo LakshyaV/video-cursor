@@ -513,26 +513,36 @@ class FFmpegUtils:
         audio_filters = []
         
         # Handle speed effects first (requires special handling)
+        use_complex_speed = False
+        speed_filterspec = None
+        audio_filterspec = None
         if effects and "speed" in effects:
-            speed = effects["speed"]
-            # Video speed: setpts filter
-            filters.append(f"setpts={1/speed}*PTS")
-            # Audio speed: atempo filter (limited to 0.5-2.0 range)
-            if "audio_tempo" in effects:
-                tempo = effects["audio_tempo"]
-                if 0.5 <= tempo <= 2.0:
-                    audio_filters.append(f"atempo={tempo}")
-                else:
-                    # For extreme speeds, chain multiple atempo filters
-                    current_tempo = tempo
-                    while current_tempo > 2.0:
-                        audio_filters.append("atempo=2.0")
-                        current_tempo /= 2.0
-                    while current_tempo < 0.5:
-                        audio_filters.append("atempo=0.5")
-                        current_tempo *= 2.0
-                    if current_tempo != 1.0:
-                        audio_filters.append(f"atempo={current_tempo}")
+            try:
+                speed = float(effects["speed"])
+            except Exception:
+                speed = 1.0
+            if speed <= 0:
+                speed = 1.0
+            # Build explicit filter_complex specs to avoid setpts being ignored
+            speed_filterspec = f"[0:v]setpts=PTS/{speed}[v]"
+            tempo = float(effects.get("audio_tempo", speed))
+            # Build atempo chain
+            chain = []
+            if 0.5 <= tempo <= 2.0:
+                chain.append(f"atempo={tempo}")
+            else:
+                current = tempo
+                while current > 2.0:
+                    chain.append("atempo=2.0")
+                    current /= 2.0
+                while current < 0.5:
+                    chain.append("atempo=0.5")
+                    current *= 2.0
+                if abs(current - 1.0) > 1e-6:
+                    chain.append(f"atempo={current}")
+            if chain:
+                audio_filterspec = f"[0:a]{','.join(chain)}[a]"
+            use_complex_speed = True
         
         # Basic effects
         if blur > 0:
@@ -616,18 +626,42 @@ class FFmpegUtils:
             filters.append("vflip")
         
         # Build command
-        command = [self.ffmpeg_path, '-i', input_path]
+        command = [self.ffmpeg_path, '-y', '-i', input_path]
         
-        if filters:
-            command.extend(['-vf', ','.join(filters)])
-        
-        if audio_filters:
-            command.extend(['-af', ','.join(audio_filters)])
-            command.extend(['-c:v', 'libx264'])  # Re-encode video when processing audio
+        if use_complex_speed:
+            filterspecs = []
+            if speed_filterspec:
+                filterspecs.append(speed_filterspec)
+            if audio_filterspec:
+                filterspecs.append(audio_filterspec)
+            command.extend(['-filter_complex', ';'.join(filterspecs)])
+            # Map filtered streams
+            if speed_filterspec:
+                command.extend(['-map', '[v]'])
+            else:
+                command.extend(['-map', '0:v'])
+            if audio_filterspec:
+                command.extend(['-map', '[a]'])
+            else:
+                command.extend(['-map', '0:a?'])
+            command.extend(['-c:v', 'libx264', '-c:a', 'aac'])
         else:
-            command.extend(['-c:a', 'copy'])  # Copy audio when no audio processing
+            if filters:
+                command.extend(['-vf', ','.join(filters)])
+            if audio_filters:
+                command.extend(['-af', ','.join(audio_filters)])
+            video_codec_needed = bool(filters)
+            audio_codec_needed = bool(audio_filters)
+            if video_codec_needed and audio_codec_needed:
+                command.extend(['-c:v', 'libx264', '-c:a', 'aac'])
+            elif video_codec_needed:
+                command.extend(['-c:v', 'libx264', '-c:a', 'copy'])
+            elif audio_codec_needed:
+                command.extend(['-c:v', 'copy', '-c:a', 'aac'])
+            else:
+                command.extend(['-c', 'copy'])
         
-        command.extend(['-y', output_path])
+        command.append(output_path)
         
         return self._run_command(command, "Applying Video Effects")
     

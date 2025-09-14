@@ -11,6 +11,8 @@ import uuid
 from pathlib import Path
 import json
 import re
+import speech_recognition as sr
+from pydub import AudioSegment
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -614,21 +616,51 @@ async def search_video_content(request: TwelveLabsRequest):
     if not twelvelabs_client:
         raise HTTPException(status_code=503, detail="TwelveLabs service not available")
     
-    # For demo purposes, use a default index - in production, you'd track uploaded videos
+    # For demo purposes, use a default index - in production, track your uploaded video/index IDs
     try:
-        search_options = ["visual", "audio"] if request.search_type == "both" else [request.search_type]
-        
-        # This would use the index from a previous upload
-        # For now, return a mock response
+        # Debug: list indexes and pick the most recent one
+        print("🔎 Listing TwelveLabs indexes...")
+        indexes = twelvelabs_client.indexes.list(page=1, page_limit=5, sort_by="created_at", sort_option="desc")
+        print(f"📦 Indexes response: {indexes}")
+        if not indexes.data:
+            raise HTTPException(status_code=404, detail="No TwelveLabs indexes found. Upload first.")
+        index_id = indexes.data[0].id
+        print(f"✅ Using index: {index_id}")
+
+        # Debug: list videos for the index
+        videos = twelvelabs_client.indexes.videos.list(index_id=index_id, page=1, page_limit=10, sort_by="created_at", sort_option="desc")
+        print(f"🎞️ Videos response: {videos}")
+        if not videos.data:
+            raise HTTPException(status_code=404, detail="No videos in TwelveLabs index. Upload first.")
+        video_id = videos.data[0].id
+        print(f"🎯 Searching in video: {video_id}")
+
+        # Perform a text search
+        print(f"🔍 Running TL search for query: {request.query}")
+        result = twelvelabs_client.search.query(index_id=index_id, query_text=request.query, page=1, page_limit=5)
+        print(f"🧾 Raw TL search result: {result}")
+
+        # Build a simple response with segment start/end if available
+        segments = []
+        try:
+            for item in getattr(result, 'data', []) or []:
+                start = getattr(item, 'start', None)
+                end = getattr(item, 'end', None)
+                score = getattr(item, 'score', None)
+                if start is not None and end is not None:
+                    segments.append({"start": float(start), "end": float(end), "score": float(score) if score is not None else None})
+        except Exception as parse_err:
+            print(f"⚠️ Could not parse TL segments: {parse_err}")
+
         return {
             "query": request.query,
-            "results": [
-                {"start": 10.5, "end": 15.2, "score": 0.95, "confidence": 0.88},
-                {"start": 25.1, "end": 30.8, "score": 0.87, "confidence": 0.82}
-            ],
-            "message": "Search completed successfully"
+            "index_id": index_id,
+            "video_id": video_id,
+            "segments": segments,
+            "raw": str(result)
         }
     except Exception as e:
+        print(f"❌ TwelveLabs search error: {e}")
         raise HTTPException(status_code=500, detail=f"TwelveLabs search failed: {str(e)}")
 
 @app.post("/api/video/summarize")
@@ -1050,6 +1082,200 @@ def _parse_location_range(text: str, duration: Optional[float]) -> Optional[tupl
             return (0.0, s)
     return None
 
+def _parse_front_back_cuts(text: str) -> tuple[float, float]:
+    """Return (front_cut_seconds, back_cut_seconds) parsed from text.
+    Interprets phrases like 'first 10 seconds', 'last 2 seconds',
+    'minus 10 from the front', 'minus 2 from the back'.
+    """
+    t = (text or '').lower()
+    front_cut = 0.0
+    back_cut = 0.0
+    # first X seconds => remove first X
+    m = re.findall(r'first\s+(\d+(?:\.\d+)?)\s*seconds?', t)
+    for val in m:
+        front_cut = max(front_cut, float(val))
+    # last X seconds => remove last X
+    m = re.findall(r'last\s+(\d+(?:\.\d+)?)\s*seconds?', t)
+    for val in m:
+        back_cut = max(back_cut, float(val))
+    # minus X from the front/start
+    m = re.findall(r'minus\s+(\d+(?:\.\d+)?)\s*(?:seconds?|s)?\s+from\s+the\s+(?:front|start)', t)
+    for val in m:
+        front_cut = max(front_cut, float(val))
+    # minus X from the back/end
+    m = re.findall(r'minus\s+(\d+(?:\.\d+)?)\s*(?:seconds?|s)?\s+from\s+the\s+(?:back|end)', t)
+    for val in m:
+        back_cut = max(back_cut, float(val))
+    return front_cut, back_cut
+
+def infer_trim_range_from_prompt_and_instances(prompt: str, instances: list[list[str]], duration: Optional[float]) -> Optional[tuple[float, float]]:
+    """Infer a single (start,end) keep-range from the user's prompt and AI instances.
+    Combines explicit ranges with front/back cuts logically.
+    """
+    # Aggregate ranges and cuts from both prompt and instance locations
+    allowed_start: Optional[float] = 0.0 if duration is not None else None
+    allowed_end: Optional[float] = float(duration) if duration is not None else None
+    collected_ranges: list[tuple[float, float]] = []
+    front_cut_total = 0.0
+    back_cut_total = 0.0
+
+    # From entire prompt
+    f_cut, b_cut = _parse_front_back_cuts(prompt)
+    front_cut_total = max(front_cut_total, f_cut)
+    back_cut_total = max(back_cut_total, b_cut)
+    rng = _parse_location_range(prompt, duration)
+    if rng is not None and not re.search(r'\b(first|last)\b', (prompt or '').lower()):
+        collected_ranges.append(rng)
+
+    # From each instance location
+    for _, location in instances:
+        f_cut, b_cut = _parse_front_back_cuts(location)
+        front_cut_total = max(front_cut_total, f_cut)
+        back_cut_total = max(back_cut_total, b_cut)
+        rng = _parse_location_range(location, duration)
+        # Avoid treating 'first X seconds' as a keep range; already captured as cut
+        if rng is not None and not re.search(r'\b(first|last)\b', location.lower()):
+            collected_ranges.append(rng)
+
+    # Narrow allowed range by intersections
+    for r_start, r_end in collected_ranges:
+        if allowed_start is None and allowed_end is None:
+            allowed_start, allowed_end = r_start, r_end
+        else:
+            # Use existing bounds (if None, infer from duration if available)
+            cur_start = allowed_start if allowed_start is not None else 0.0
+            cur_end = allowed_end if allowed_end is not None else (float(duration) if duration is not None else r_end)
+            # Intersect
+            new_start = max(cur_start, r_start)
+            new_end = min(cur_end, r_end)
+            allowed_start, allowed_end = new_start, new_end
+
+    # If we have only cuts but no explicit duration, we still need duration to compute back cuts
+    if allowed_start is None and allowed_end is None and duration is not None:
+        allowed_start, allowed_end = 0.0, float(duration)
+
+    if allowed_start is None or allowed_end is None:
+        return None
+
+    # Apply front/back cuts to the allowed range
+    start = allowed_start + front_cut_total
+    end = allowed_end - back_cut_total
+    if duration is not None:
+        start = max(0.0, min(start, float(duration)))
+        end = max(0.0, min(end, float(duration)))
+
+    if end - start <= 0:
+        return None
+    return (start, end)
+
+def _parse_speed_factor(text: str) -> Optional[float]:
+    """Parse speed change factor from text. Examples:
+    - "speed up by 2x" => 2.0
+    - "speed up 2x" => 2.0
+    - "2x speed" / "2x faster" => 2.0
+    - "slow down to 0.5x" => 0.5
+    - "slow down by 2x" => 0.5 (interpret as twice slower)
+    - "half speed" => 0.5
+    - "double speed" => 2.0
+    """
+    if not text:
+        return None
+    t = text.lower()
+    # Words
+    if "double speed" in t or "twice as fast" in t:
+        return 2.0
+    if "half speed" in t or "half as fast" in t:
+        return 0.5
+    # patterns like 0.5x, 2x
+    m = re.search(r"(\d+(?:\.\d+)?)\s*x", t)
+    if m:
+        x = float(m.group(1))
+        if "slow" in t:
+            # "slow down by 2x" means half speed
+            # "slow down to 0.5x" handled naturally below
+            if re.search(r"slow[^.]*\bto\b", t):
+                return x
+            return 1.0 / x if x != 0 else None
+        return x
+    # phrases: speed up/slow down by/to N
+    m = re.search(r"speed up (?:by|to)?\s*(\d+(?:\.\d+)?)", t)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"slow down (?:to)\s*(\d+(?:\.\d+)?)", t)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"slow down (?:by)\s*(\d+(?:\.\d+)?)", t)
+    if m:
+        x = float(m.group(1))
+        return 1.0 / x if x != 0 else None
+    return None
+
+def _find_keyword_segments_in_audio(video_path: str, keyword: str, language: str = "en-US") -> List[tuple[float, float]]:
+    """Rough speech-based search: returns list of (start,end) seconds where keyword occurs.
+    Approach: extract mono wav, window into chunks (e.g., 2.5s with 1.25s hop),
+    use speech_recognition Google recognizer for lightweight keyword presence.
+    """
+    try:
+        # Extract audio
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
+            temp_audio_path = temp_audio.name
+        ffprobe = ffmpeg_utils.get_media_info(video_path)
+        if not ffprobe.get("success"):
+            return []
+        # Use our extractor from utils
+        extract_cmd = [ffmpeg_utils.ffmpeg_path, '-i', video_path, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', '-y', temp_audio_path]
+        _ = ffmpeg_utils._run_command(extract_cmd, "Audio Extraction for Keyword Search")
+        if not os.path.exists(temp_audio_path):
+            return []
+        # Load audio and scan
+        audio = AudioSegment.from_wav(temp_audio_path)
+        total_ms = len(audio)
+        recognizer = sr.Recognizer()
+        window_ms = 2500
+        hop_ms = 1250
+        hits: List[tuple[float, float]] = []
+        k = keyword.strip().lower()
+        for start_ms in range(0, total_ms, hop_ms):
+            seg = audio[start_ms:start_ms + window_ms]
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as seg_file:
+                seg.export(seg_file.name, format="wav")
+                seg_path = seg_file.name
+            try:
+                with sr.AudioFile(seg_path) as source:
+                    audio_data = recognizer.record(source)
+                    try:
+                        text = recognizer.recognize_google(audio_data, language=language)
+                    except sr.UnknownValueError:
+                        text = ""
+                if k and k in text.lower():
+                    # Mark the whole window as a hit; we can refine later if needed
+                    s = start_ms / 1000.0
+                    e = min((start_ms + window_ms) / 1000.0, total_ms / 1000.0)
+                    hits.append((s, e))
+            finally:
+                if os.path.exists(seg_path):
+                    os.remove(seg_path)
+        # Merge overlapping hits
+        if not hits:
+            if os.path.exists(temp_audio_path):
+                os.remove(temp_audio_path)
+            return []
+        hits.sort()
+        merged: List[tuple[float, float]] = []
+        cur_s, cur_e = hits[0]
+        for s, e in hits[1:]:
+            if s <= cur_e + 0.25:
+                cur_e = max(cur_e, e)
+            else:
+                merged.append((cur_s, cur_e))
+                cur_s, cur_e = s, e
+        merged.append((cur_s, cur_e))
+        if os.path.exists(temp_audio_path):
+            os.remove(temp_audio_path)
+        return merged
+    except Exception:
+        return []
+
 async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
     """Process vague editing request using AI and execute the editing"""
     print(f"🎬 Processing vague request: {prompt}")
@@ -1075,7 +1301,6 @@ async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
     print(f"🤖 AI Commands: {commands}")
     
     # Generate proper output filename with ai_edited prefix
-    import time
     timestamp = int(time.time())
     
     # Extract video_id from video_path if possible
@@ -1098,26 +1323,21 @@ async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
         print(f"🔍 Contains 'blur': {'blur' in prompt_lower}")
         print(f"🔍 Contains 'face': {'face' in prompt_lower}")
         
-        if "speed up" in prompt_lower or "faster" in prompt_lower:
-            print("🚀 Applying speed up effect...")
-            # Speed up the video (e.g., 2x speed)
+        speed_factor = _parse_speed_factor(prompt)
+        if speed_factor is None and ("speed up" in prompt_lower or "slower" in prompt_lower or "slow down" in prompt_lower or re.search(r"\b\d+(?:\.\d+)?x\b", prompt_lower)):
+            # Default factors when phrase exists but no number given
+            speed_factor = 2.0 if "speed up" in prompt_lower else 0.5
+        if speed_factor is not None:
+            if speed_factor > 1.0:
+                print(f"🚀 Applying speed up effect {speed_factor}x...")
+            else:
+                print(f"🐌 Applying slow down effect to {speed_factor}x...")
             result = ffmpeg_utils.apply_video_effects(
                 str(input_path), 
                 str(output_path),
                 effects={
-                    "speed": 2.0,  # 2x speed
-                    "audio_tempo": 2.0  # Keep audio in sync
-                }
-            )
-        elif "slow down" in prompt_lower or "slower" in prompt_lower:
-            print("🐌 Applying slow down effect...")
-            # Slow down the video (e.g., 0.5x speed)
-            result = ffmpeg_utils.apply_video_effects(
-                str(input_path), 
-                str(output_path),
-                effects={
-                    "speed": 0.5,  # 0.5x speed
-                    "audio_tempo": 0.5  # Keep audio in sync
+                    "speed": float(speed_factor),
+                    "audio_tempo": float(speed_factor)
                 }
             )
         elif "blur" in prompt_lower:
@@ -1281,6 +1501,77 @@ async def process_specific_request(prompt: str, video_path: str) -> Dict[str, An
     """Process specific editing request using the logic from specific.py"""
     try:
         print(f"🎯 Processing specific request: {prompt}")
+        prompt_lower = (prompt or '').lower()
+
+        # Fast-path: handle "keep only the part where (he|she|they) says <keyword>" without relying on AI parsing
+        if re.search(r"\bkeep( only)? (the )?part where (he|she|they) says\b", prompt_lower):
+            print("🛣️ Fast-path: keyword-based keep detected from prompt")
+            # Try to extract keyword after 'says'
+            kw_match = re.search(r"\bsays\s+([a-zA-Z0-9\-]+)\b", prompt, re.IGNORECASE)
+            if not kw_match:
+                # Try quoted keyword: says "..."
+                q = re.search(r"\bsays\s+['\"]([^'\"]+)['\"]", prompt, re.IGNORECASE)
+                if q:
+                    keyword = q.group(1).strip()
+                else:
+                    keyword = None
+            else:
+                keyword = kw_match.group(1).strip()
+            if not keyword:
+                return {
+                    "type": "specific",
+                    "commands": prompt,
+                    "status": "error",
+                    "error": "Could not extract keyword after 'says'"
+                }
+            print(f"🔑 Keyword extracted: {keyword}")
+            segments = _find_keyword_segments_in_audio(video_path, keyword)
+            if not segments:
+                return {
+                    "type": "specific",
+                    "commands": prompt,
+                    "status": "error",
+                    "error": f"Could not find any segment where '{keyword}' is spoken"
+                }
+            # Choose the longest segment and add small padding
+            seg = max(segments, key=lambda r: r[1] - r[0])
+            pad = 0.25
+            s = max(0.0, seg[0] - pad)
+            e = seg[1] + pad
+            print(f"⏱️ Keeping keyword segment: {s:.3f}s → {e:.3f}s")
+
+            # Build output filename
+            timestamp = int(time.time())
+            video_path_obj = Path(video_path)
+            video_id = video_path_obj.stem
+            output_filename = f"ai_edited_{video_id[:8]}_{timestamp}.mp4"
+            output_path = OUTPUT_DIR / output_filename
+
+            start_time = f"{int(s//3600):02d}:{int((s%3600)//60):02d}:{s%60:06.3f}"
+            duration_time = f"{int((e-s)//3600):02d}:{int(((e-s)%3600)//60):02d}:{(e-s)%60:06.3f}"
+            print(f"✂️ Trimming from {start_time} for duration {duration_time}")
+            result = ffmpeg_utils.trim_video(
+                str(video_path),
+                str(output_path),
+                start_time,
+                duration_time,
+                precise=True
+            )
+            if result.get("success"):
+                return {
+                    "type": "specific",
+                    "commands": f"Keep AND says {keyword}",
+                    "status": "completed",
+                    "output_file": output_filename,
+                    "output_path": str(output_path),
+                    "success": True
+                }
+            return {
+                "type": "specific",
+                "commands": prompt,
+                "status": "error",
+                "error": f"Trim failed: {result.get('error', 'unknown error')}"
+            }
         
         # Step 1: Extract commands from prompt (similar to intent_extraction in specific.py)
         extraction_prompt = f"""
@@ -1325,49 +1616,57 @@ async def process_specific_request(prompt: str, video_path: str) -> Dict[str, An
                 "error": "No valid commands could be extracted from the prompt"
             }
         
-        # Step 2: Generate timestamps using robust parsing of locations
+        # Step 2: Generate timestamps using robust parsing that combines front/back cuts and ranges
         print("🔍 Starting timestamp extraction...")
         
-        # Get duration once
         video_duration = _get_video_duration_seconds(video_path)
         edit_commands = {}
         for command, location in instances:
-            if "trim" in command.lower() or "cut" in command.lower():
-                rng = _parse_location_range(location, video_duration)
+            cmd_lower = command.lower()
+            if "trim" in cmd_lower or "cut" in cmd_lower or "splice" in cmd_lower:
+                rng = infer_trim_range_from_prompt_and_instances(prompt, instances, video_duration)
                 if rng is not None:
                     edit_commands[command] = [rng[0], rng[1]]
                 else:
-                    # Try parsing the original prompt for a range (e.g., "trim to 5 seconds")
-                    rng_from_prompt = _parse_location_range(prompt, video_duration)
-                    if rng_from_prompt is not None:
-                        edit_commands[command] = [rng_from_prompt[0], rng_from_prompt[1]]
-                        continue
-                    last_seconds_match = re.search(r'last (\d+(?:\.\d+)?)\s*seconds?', prompt.lower())
-                    first_seconds_match = re.search(r'first (\d+(?:\.\d+)?)\s*seconds?', prompt.lower())
-                    if last_seconds_match and video_duration is not None:
-                        seconds_to_trim = float(last_seconds_match.group(1))
-                        start_time = 0
-                        end_time = max(0.0, float(video_duration) - seconds_to_trim)
-                        edit_commands[command] = [start_time, end_time]
-                    elif first_seconds_match and video_duration is not None:
-                        seconds_to_trim = float(first_seconds_match.group(1))
-                        start_time = seconds_to_trim
-                        end_time = float(video_duration)
-                        edit_commands[command] = [start_time, end_time]
+                    # As a last resort, try location-only inference
+                    loc_rng = _parse_location_range(location, video_duration)
+                    if loc_rng is not None:
+                        edit_commands[command] = [loc_rng[0], loc_rng[1]]
                     else:
-                        if video_duration is not None:
-                            start_time = max(0.0, float(video_duration) / 2.0 - 5.0)
-                            end_time = min(float(video_duration), start_time + 10.0)
-                            edit_commands[command] = [start_time, end_time]
-                        else:
-                            # Do not default to an arbitrary 10s cut; skip this command if we cannot infer timing
-                            print("⚠️ Skipping trim command because no timing could be inferred and duration is unknown")
-                            continue
+                        print("⚠️ Skipping trim command because no timing could be inferred")
+                        continue
+            elif any(token in cmd_lower for token in ["keep", "keep only", "keep part", "keep segment"]):
+                # Keyword-based keep instructions, e.g., "keep only the part where he says elephant"
+                # Extract a plausible keyword from prompt/location
+                # Simple heuristic: look for 'says <word>' or 'saying <word>'
+                kw = None
+                m = re.search(r'\b(?:says|saying|mentions|said)\s+([a-zA-Z0-9\-]+)', (location or '') + ' ' + (prompt or ''), re.IGNORECASE)
+                if m:
+                    kw = m.group(1)
+                else:
+                    # fallback: last quoted token
+                    m = re.findall(r'"([^"]+)"|\'([^\']+)\'', (location or '') + ' ' + (prompt or ''))
+                    if m:
+                        last = m[-1]
+                        kw = last[0] or last[1]
+                if kw:
+                    segs = _find_keyword_segments_in_audio(video_path, kw)
+                    if segs:
+                        # Keep the first matched segment for now (could be extended to concatenate)
+                        s, e = segs[0]
+                        edit_commands[command] = [s, e]
+                    else:
+                        print(f"⚠️ No keyword hits found for '{kw}'")
+                        continue
+                else:
+                    print("⚠️ Could not extract keyword from keep instruction")
+                    continue
             else:
                 if video_duration is not None:
                     edit_commands[command] = [0, float(video_duration)]
                 else:
-                    edit_commands[command] = [0, 30]
+                    print("⚠️ Unknown duration; cannot set timing for non-trim command. Skipping.")
+                    continue
         
         print(f"⏰ Generated timestamps: {edit_commands}")
         
@@ -1377,7 +1676,6 @@ async def process_specific_request(prompt: str, video_path: str) -> Dict[str, An
         base_name = os.path.splitext(video_path)[0]
         
         # Generate proper output filename with ai_edited prefix
-        import time
         timestamp = int(time.time())
         video_path_obj = Path(video_path)
         video_id = video_path_obj.stem
@@ -1423,16 +1721,67 @@ async def process_specific_request(prompt: str, video_path: str) -> Dict[str, An
             
             # Handle other commands (can be expanded)
             else:
-                # For other commands, apply basic effects
-                print(f"🎨 Applying default enhancement for command: {first_command}")
-                result = ffmpeg_utils.apply_video_effects(
-                    str(current_video_path),
-                    str(output_path),
-                    effects={
-                        "contrast": 1.1,
-                        "saturation": 1.05
-                    }
-                )
+                # Try speed up / slow down first
+                loc_text = ""
+                try:
+                    for _cmd, _loc in instances:
+                        if _cmd.strip().lower() == first_command.strip().lower():
+                            loc_text = _loc or ""
+                            break
+                except Exception:
+                    loc_text = ""
+                speed_factor = _parse_speed_factor(f"{first_command} {loc_text} {prompt}")
+                if speed_factor is not None:
+                    print(f"🎞️ Applying speed effect {speed_factor}x for command: {first_command}")
+                    # If a subrange was inferred, trim first then apply speed
+                    input_for_effects = str(current_video_path)
+                    start_seconds = timestamps[0]
+                    end_seconds = timestamps[1]
+                    duration_seconds = end_seconds - start_seconds
+                    needs_segment = start_seconds > 0.001 or (video_duration is not None and end_seconds < float(video_duration) - 0.001)
+                    tmp_segment_path = None
+                    if needs_segment:
+                        tmp_segment_path = str(OUTPUT_DIR / f"tmp_speed_segment_{int(time.time())}.mp4")
+                        start_time_str = f"{int(start_seconds//3600):02d}:{int((start_seconds%3600)//60):02d}:{start_seconds%60:06.3f}"
+                        duration_time_str = f"{int(duration_seconds//3600):02d}:{int((duration_seconds%3600)//60):02d}:{duration_seconds%60:06.3f}"
+                        print(f"✂️ Pre-trimming segment {start_time_str} for {duration_time_str} before speed effect")
+                        trim_res = ffmpeg_utils.trim_video(
+                            str(current_video_path),
+                            tmp_segment_path,
+                            start_time_str,
+                            duration_time_str,
+                            precise=True
+                        )
+                        if trim_res.get("success"):
+                            input_for_effects = tmp_segment_path
+                        else:
+                            print(f"⚠️ Pre-trim failed, applying speed to full video: {trim_res.get('error')}")
+                            tmp_segment_path = None
+                    result = ffmpeg_utils.apply_video_effects(
+                        input_for_effects,
+                        str(output_path),
+                        effects={
+                            "speed": float(speed_factor),
+                            "audio_tempo": float(speed_factor)
+                        }
+                    )
+                    # Clean up temp segment if created
+                    if tmp_segment_path and os.path.exists(tmp_segment_path):
+                        try:
+                            os.remove(tmp_segment_path)
+                        except Exception:
+                            pass
+                else:
+                    # For other commands, apply basic enhancement
+                    print(f"🎨 Applying default enhancement for command: {first_command}")
+                    result = ffmpeg_utils.apply_video_effects(
+                        str(current_video_path),
+                        str(output_path),
+                        effects={
+                            "contrast": 1.1,
+                            "saturation": 1.05
+                        }
+                    )
                 
                 if result.get("success"):
                     print(f"✅ Effects applied successfully")
