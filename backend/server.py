@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -77,7 +77,7 @@ cohere_client = None
 twelvelabs_client = None
 
 if os.getenv("COHERE_API_KEY"):
-    cohere_client = cohere.ClientV2(api_key=os.getenv("COHERE_API_KEY"))
+    cohere_client = cohere.Client(api_key=os.getenv("COHERE_API_KEY"))
 
 if os.getenv("api_key_1"):
     twelvelabs_client = TwelveLabs(api_key=os.getenv("api_key_1"))
@@ -561,7 +561,7 @@ async def analyze_prompt(prompt: str = Form(...)):
     
     response = cohere_client.chat(
         model="command-r-plus",
-        messages=[{"role": "user", "content": analysis_prompt}]
+        message=analysis_prompt
     )
     
     result = extract_response_text(response).strip().lower()
@@ -779,22 +779,57 @@ async def export_video(request: ExportRequest):
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 @app.get("/api/preview/{file_id}")
-async def preview_file(file_id: str):
-    """Stream video preview"""
+async def preview_file(file_id: str, request: Request):
+    """Stream video preview with Range support for seeking"""
     # Try output files first, then uploaded files
     file_paths = list(OUTPUT_DIR.glob(f"{file_id}.*")) + list(UPLOAD_DIR.glob(f"{file_id}.*"))
     if not file_paths:
         raise HTTPException(status_code=404, detail="File not found")
     
     file_path = file_paths[0]
-    
-    def iterfile(file_path: str):
-        with open(file_path, mode="rb") as file_like:
-            yield from file_like
-    
     media_type = "video/mp4" if file_path.suffix.lower() in ['.mp4', '.mov', '.avi'] else "application/octet-stream"
-    
-    return StreamingResponse(iterfile(str(file_path)), media_type=media_type)
+
+    # Implement HTTP Range support
+    range_header = request.headers.get('range') or request.headers.get('Range')
+    file_size = file_path.stat().st_size
+    headers = {"Accept-Ranges": "bytes"}
+    if range_header:
+        # bytes=start-end
+        import re
+        m = re.match(r"bytes=(\d+)-(\d+)?", range_header)
+        if m:
+            start = int(m.group(1))
+            end = int(m.group(2)) if m.group(2) else file_size - 1
+            start = max(0, start)
+            end = min(file_size - 1, end)
+            if start > end:
+                start, end = 0, file_size - 1
+            length = end - start + 1
+            def iter_range():
+                with open(file_path, 'rb') as f:
+                    f.seek(start)
+                    remaining = length
+                    chunk = 1024 * 1024
+                    while remaining > 0:
+                        data = f.read(min(chunk, remaining))
+                        if not data:
+                            break
+                        remaining -= len(data)
+                        yield data
+            headers.update({
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Content-Length": str(length)
+            })
+            return StreamingResponse(iter_range(), status_code=206, media_type=media_type, headers=headers)
+    def iter_full():
+        with open(file_path, 'rb') as f:
+            while True:
+                data = f.read(1024 * 1024)
+                if not data:
+                    break
+                yield data
+    headers["Content-Length"] = str(file_size)
+    return StreamingResponse(iter_full(), media_type=media_type, headers=headers)
 
 @app.get("/api/outputs")
 async def list_outputs():
@@ -813,27 +848,53 @@ async def list_outputs():
     return {"outputs": outputs}
 
 @app.get("/api/outputs/{filename}")
-async def download_output(filename: str):
-    """Download or stream a processed output file"""
+async def download_output(filename: str, request: Request):
+    """Download or stream a processed output file with Range support"""
     output_path = OUTPUT_DIR / filename
     
     if not output_path.exists():
         raise HTTPException(status_code=404, detail="Output file not found")
-    
-    def iterfile(file_path: str):
-        with open(file_path, mode="rb") as file_like:
-            yield from file_like
-    
     media_type = "video/mp4" if output_path.suffix.lower() in ['.mp4', '.mov', '.avi'] else "application/octet-stream"
-    
-    return StreamingResponse(
-        iterfile(str(output_path)), 
-        media_type=media_type,
-        headers={
-            "Content-Disposition": f"inline; filename={filename}",
-            "Cache-Control": "no-cache"
-        }
-    )
+    # Reuse same Range logic as preview
+    range_header = request.headers.get('range') or request.headers.get('Range')
+    file_size = output_path.stat().st_size
+    headers = {"Accept-Ranges": "bytes", "Content-Disposition": f"inline; filename={filename}", "Cache-Control": "no-cache"}
+    if range_header:
+        import re
+        m = re.match(r"bytes=(\d+)-(\d+)?", range_header)
+        if m:
+            start = int(m.group(1))
+            end = int(m.group(2)) if m.group(2) else file_size - 1
+            start = max(0, start)
+            end = min(file_size - 1, end)
+            if start > end:
+                start, end = 0, file_size - 1
+            length = end - start + 1
+            def iter_range():
+                with open(output_path, 'rb') as f:
+                    f.seek(start)
+                    remaining = length
+                    chunk = 1024 * 1024
+                    while remaining > 0:
+                        data = f.read(min(chunk, remaining))
+                        if not data:
+                            break
+                        remaining -= len(data)
+                        yield data
+            headers.update({
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Content-Length": str(length)
+            })
+            return StreamingResponse(iter_range(), status_code=206, media_type=media_type, headers=headers)
+    def iter_full():
+        with open(output_path, 'rb') as f:
+            while True:
+                data = f.read(1024 * 1024)
+                if not data:
+                    break
+                yield data
+    headers["Content-Length"] = str(file_size)
+    return StreamingResponse(iter_full(), media_type=media_type, headers=headers)
 
 # ====================
 # UTILITY FUNCTIONS
@@ -890,7 +951,7 @@ async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
     
     response = cohere_client.chat(
         model="command-r-plus",
-        messages=[{"role": "user", "content": analysis_prompt}]
+        message=analysis_prompt
     )
     
     commands = extract_response_text(response)
@@ -1120,7 +1181,7 @@ async def process_specific_request(prompt: str, video_path: str) -> Dict[str, An
         
         response = cohere_client.chat(
             model="command-r-plus",
-            messages=[{"role": "user", "content": extraction_prompt}]
+            message=extraction_prompt
         )
         
         commands_text = extract_response_text(response)
