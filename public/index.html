@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DaVinci Resolve Studio 20</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Bar -->
+        <div class="top-bar">
+            <div class="top-left">
+                <!-- Simple Upload Button -->
+                        <div class="toolbar">
+            <button id="uploadVideoBtn" class="upload-video-btn">
+                <i class="fas fa-upload"></i>
+                Upload Video
+            </button>
+            <input type="file" id="fileInput" accept="video/*" style="display: none;">
+        </div>
+            </div>
+            
+            <div class="top-center">
+                <h1 class="project-title">AI Video Editor</h1>
+                <span class="project-subtitle">Powered by AI</span>
+            </div>
+            
+            <div class="top-right">
+                <div class="tab-group">
+                    <button class="tab" id="viewOriginalTab">
+                        <i class="fas fa-eye"></i>
+                        Original
+                    </button>
+                    <button class="tab" id="viewProcessedTab">
+                        <i class="fas fa-magic"></i>
+                        Processed
+                    </button>
+                    <button class="tab" id="downloadTab">
+                        <i class="fas fa-download"></i>
+                        Download
+                    </button>
+                    <button class="tab active">
+                        <i class="fas fa-comments"></i>
+                        AI Chat
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <!-- Video and Chat Container -->
+            <div style="display: flex; flex: 1; gap: 1px;">
+                <!-- Video Viewer - Expanded to take most space -->
+                <div class="video-panel">
+                    <div class="video-viewer">
+                        <div class="video-frame">
+                            <!-- Integrated Toolbar Overlay -->
+                            <div class="video-toolbar">
+                                <div class="toolbar-group">
+                                    <button class="toolbar-btn" title="Zoom In">
+                                        <i class="fas fa-search-plus"></i>
+                                    </button>
+                                    <button class="toolbar-btn" title="Zoom Out">
+                                        <i class="fas fa-search-minus"></i>
+                                    </button>
+                                    <button class="toolbar-btn" title="Fit to Frame">
+                                        <i class="fas fa-expand-arrows-alt"></i>
+                                    </button>
+                                </div>
+                                <div class="toolbar-group">
+                                    <button class="toolbar-btn" title="Transform">
+                                        <i class="fas fa-arrows-alt"></i>
+                                    </button>
+                                    <button class="toolbar-btn" title="Crop">
+                                        <i class="fas fa-crop"></i>
+                                    </button>
+                                    <button class="toolbar-btn" title="Rotate">
+                                        <i class="fas fa-redo"></i>
+                                    </button>
+                                </div>
+                                <div class="toolbar-group">
+                                    <span class="zoom-level">100%</span>
+                                </div>
+                            </div>
+                        
+                        <div class="video-content">
+                            <div class="video-overlay">
+                                <div class="safe-area"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+                <!-- Right Panel -->
+                <div class="right-panel" id="rightPanel">
+                    <!-- Chat Toggle Button -->
+                    <button class="chat-toggle" id="chatToggle">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    
+                    <!-- Chat Section -->
+                    <div class="chat-section">
+                        <div class="chat-header">
+                            <div class="chat-title">
+                                <i class="fas fa-comments"></i>
+                            <span>AI Assistant</span>
+                        </div>
+                        <div class="chat-actions">
+                            <button class="chat-action-btn" title="Clear Chat">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                            <button class="chat-action-btn" title="Settings">
+                                <i class="fas fa-cog"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="welcome-message">
+                            <div class="message-avatar">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <div class="message-content">
+                                <div class="message-text">
+                                    Welcome to your AI video editing assistant! 
+                                    <br><br>
+                                    <strong>🎬 Simple Workflow:</strong>
+                                    <br>1. Click "Upload Video" button above
+                                    <br>2. The video will auto-load in the viewer
+                                    <br>3. Tell me how you want to edit it!
+                                    <br><br>
+                                    <strong>✨ Try commands like:</strong>
+                                    <br>• "Speed up the video"
+                                    <br>• "Make it brighter" 
+                                    <br>• "Crop the video"
+                                    <br>• "Add blur effect"
+                                    <br><br>
+                                    Upload your video to get started! 🚀
+                                </div>
+                                <div class="message-time">Now</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-input-container">
+                        <div class="chat-input-wrapper">
+                            <textarea 
+                                id="chatInput" 
+                                class="chat-input" 
+                                placeholder="Try: 'Make the video brighter' or 'Trim the first 10 seconds'..."
+                                rows="1"
+                            ></textarea>
+                            <button class="send-button" id="sendButton">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                        <div class="quick-actions">
+                            <button class="quick-action-btn" data-action="help-brightness">
+                                <i class="fas fa-sun"></i>
+                                Brighten
+                            </button>
+                            <button class="quick-action-btn" data-action="help-trim">
+                                <i class="fas fa-cut"></i>
+                                Trim
+                            </button>
+                            <button class="quick-action-btn" data-action="help-speed">
+                                <i class="fas fa-forward"></i>
+                                Speed
+                            </button>
+                            <button class="quick-action-btn" data-action="help-crop">
+                                <i class="fas fa-crop"></i>
+                                Crop
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div> <!-- Close video and chat container -->
+        </div>
+
+        <!-- Timeline -->
+        <div class="timeline-container">
+            <div class="timeline-header">
+                <div class="time-ruler">
+                    <div class="time-marker">01:02:16:00</div>
+                    <div class="time-marker">01:02:24:00</div>
+                    <div class="time-marker">01:02:32:00</div>
+                    <div class="time-marker">01:02:40:00</div>
+                    <div class="time-marker">01:02:48:00</div>
+                </div>
+            </div>
+            <div class="timeline">
+                <div class="timeline-scroll-container">
+                    <div class="track-labels">
+                    <div class="track-label broll-track" data-track="v2">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>V2 BROLL</span>
+                    </div>
+                    <div class="track-label video-track" data-track="v1">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>V1 DYLAN</span>
+                    </div>
+                    <div class="track-label voiceover-track" data-track="a1">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>A1 VO</span>
+                    </div>
+                    <div class="track-label music-track" data-track="a2">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>A2 SOUNDTRACK 1</span>
+                    </div>
+                    <div class="track-label audio-track" data-track="a3">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>A3 SOUNDTRACK 2</span>
+                    </div>
+                    <div class="track-label fx-track" data-track="fx1">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>FX1 EFFECTS</span>
+                    </div>
+                    <div class="track-label broll-track" data-track="v3">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>V3 B-ROLL</span>
+                    </div>
+                    <div class="track-label music-track" data-track="a4">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>A4 AMBIENT</span>
+                    </div>
+                    <div class="track-label voiceover-track" data-track="a5">
+                        <div class="track-controls">
+                            <i class="fas fa-volume-mute" title="Mute Track"></i>
+                            <i class="fas fa-arrows-alt-v" title="Minimize Track"></i>
+                        </div>
+                        <span>A5 NARRATION</span>
+                    </div>
+                </div>
+                
+                <!-- Resize Slider -->
+                <div class="timeline-resize-slider" id="timelineResizeSlider"></div>
+                
+                <div class="timeline-tracks">
+                    <div class="track broll-track" data-track="v2">
+                        <div class="clip broll-clip selected" style="left: 20%; width: 25%;">
+                            <span class="clip-name">A003_0001637_C012.braw</span>
+                        </div>
+                    </div>
+                    <div class="track video-track" data-track="v1">
+                        <div class="clip dialogue-clip" style="left: 10%; width: 30%;">
+                            <span class="clip-name">A003_0001638_C013.braw</span>
+                        </div>
+                    </div>
+                    <div class="track voiceover-track" data-track="a1">
+                        <div class="clip voiceover-clip" style="left: 15%; width: 35%;">
+                            <div class="waveform">
+                                <div class="waveform-bar" style="height: 60%;"></div>
+                                <div class="waveform-bar" style="height: 40%;"></div>
+                                <div class="waveform-bar" style="height: 80%;"></div>
+                                <div class="waveform-bar" style="height: 30%;"></div>
+                                <div class="waveform-bar" style="height: 70%;"></div>
+                                <div class="waveform-bar" style="height: 50%;"></div>
+                                <div class="waveform-bar" style="height: 90%;"></div>
+                                <div class="waveform-bar" style="height: 35%;"></div>
+                            </div>
+                            <span class="clip-name">A001_00151943_C212.braw</span>
+                        </div>
+                    </div>
+                    <div class="track music-track" data-track="a2">
+                        <div class="clip soundtrack-clip" style="left: 25%; width: 20%;">
+                            <div class="waveform">
+                                <div class="waveform-bar" style="height: 45%;"></div>
+                                <div class="waveform-bar" style="height: 65%;"></div>
+                                <div class="waveform-bar" style="height: 25%;"></div>
+                                <div class="waveform-bar" style="height: 85%;"></div>
+                                <div class="waveform-bar" style="height: 55%;"></div>
+                                <div class="waveform-bar" style="height: 75%;"></div>
+                                <div class="waveform-bar" style="height: 40%;"></div>
+                                <div class="waveform-bar" style="height: 60%;"></div>
+                            </div>
+                            <span class="clip-name">A001_00151944_C213.braw</span>
+                        </div>
+                    </div>
+                    <div class="track audio-track" data-track="a3">
+                        <div class="clip foley-clip" style="left: 50%; width: 15%;">
+                            <div class="waveform">
+                                <div class="waveform-bar" style="height: 70%;"></div>
+                                <div class="waveform-bar" style="height: 50%;"></div>
+                                <div class="waveform-bar" style="height: 85%;"></div>
+                                <div class="waveform-bar" style="height: 40%;"></div>
+                                <div class="waveform-bar" style="height: 75%;"></div>
+                                <div class="waveform-bar" style="height: 55%;"></div>
+                                <div class="waveform-bar" style="height: 80%;"></div>
+                                <div class="waveform-bar" style="height: 45%;"></div>
+                            </div>
+                            <span class="clip-name">A001_00151945_C214.braw</span>
+                        </div>
+                    </div>
+                    <div class="track fx-track" data-track="fx1">
+                        <!-- Empty track for effects -->
+                    </div>
+                    <div class="track broll-track" data-track="v3">
+                        <!-- Empty track for B-roll -->
+                    </div>
+                    <div class="track music-track" data-track="a4">
+                        <!-- Empty track for ambient -->
+                    </div>
+                    <div class="track voiceover-track" data-track="a5">
+                        <!-- Empty track for narration -->
+                    </div>
+                </div>
+                </div>
+                
+                <div class="playhead" style="left: 65%;"></div>
+            </div>
+        </div>
+
+        <!-- Bottom Navigation -->
+        <div class="bottom-nav">
+            <div class="nav-modules">
+                <button class="nav-module">
+                    <i class="fas fa-folder"></i>
+                    <span>Media</span>
+                </button>
+                <button class="nav-module">
+                    <i class="fas fa-cut"></i>
+                    <span>Cut</span>
+                </button>
+                <button class="nav-module active">
+                    <i class="fas fa-edit"></i>
+                    <span>Edit</span>
+                </button>
+                <button class="nav-module">
+                    <i class="fas fa-magic"></i>
+                    <span>Fusion</span>
+                </button>
+                <button class="nav-module">
+                    <i class="fas fa-palette"></i>
+                    <span>Color</span>
+                </button>
+                <button class="nav-module">
+                    <i class="fas fa-volume-up"></i>
+                    <span>Fairlight</span>
+                </button>
+                <button class="nav-module">
+                    <i class="fas fa-download"></i>
+                    <span>Deliver</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div class="context-menu" id="contextMenu">
+        <button class="context-menu-item" data-action="minimize">
+            <i class="fas fa-compress-arrows-alt"></i>
+            Minimize Track Height
+        </button>
+        <button class="context-menu-item" data-action="collapse">
+            <i class="fas fa-minus"></i>
+            Collapse Track
+        </button>
+        <button class="context-menu-item" data-action="rename">
+            <i class="fas fa-edit"></i>
+            Rename Track
+        </button>
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item" data-action="color-dialogue">
+            <i class="fas fa-palette"></i>
+            Color: Dialogue
+        </button>
+        <button class="context-menu-item" data-action="color-music">
+            <i class="fas fa-palette"></i>
+            Color: Music
+        </button>
+        <button class="context-menu-item" data-action="color-foley">
+            <i class="fas fa-palette"></i>
+            Color: Foley
+        </button>
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item" data-action="mute">
+            <i class="fas fa-volume-mute"></i>
+            Mute Track
+        </button>
+    </div>
+
+    <!-- Workspace Presets -->
+    <div class="workspace-presets" id="workspacePresets">
+        <div class="preset-item" data-preset="editing">
+            <i class="fas fa-edit"></i>
+            <span>Editing</span>
+        </div>
+        <div class="preset-item" data-preset="color">
+            <i class="fas fa-palette"></i>
+            <span>Color Grading</span>
+        </div>
+        <div class="preset-item" data-preset="minimal">
+            <i class="fas fa-compress"></i>
+            <span>Minimal</span>
+        </div>
+    </div>
+
+    <!-- Export Modal -->
+    <div class="modal-overlay" id="exportModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>
+                    <i class="fas fa-download"></i>
+                    Export Video
+                </h3>
+                <button class="modal-close" id="closeExportModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="export-section">
+                    <label>Select Video to Export:</label>
+                    <select id="videoSelect" class="form-select">
+                        <option value="">Choose a video...</option>
+                    </select>
+                </div>
+                
+                <div class="export-section">
+                    <label>Format:</label>
+                    <select id="formatSelect" class="form-select">
+                        <option value="mp4">MP4 (H.264)</option>
+                        <option value="mov">MOV (QuickTime)</option>
+                        <option value="avi">AVI</option>
+                        <option value="webm">WebM</option>
+                    </select>
+                </div>
+                
+                <div class="export-section">
+                    <label>Quality:</label>
+                    <select id="qualitySelect" class="form-select">
+                        <option value="high">High Quality (1080p)</option>
+                        <option value="medium">Medium Quality (720p)</option>
+                        <option value="low">Low Quality (480p)</option>
+                        <option value="original">Original Quality</option>
+                    </select>
+                </div>
+                
+                <div class="export-progress" id="exportProgress" style="display: none;">
+                    <div class="progress-label">Exporting...</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="progress-percentage" id="progressPercentage">0%</div>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelExport">Cancel</button>
+                <button class="btn btn-primary" id="startExport">
+                    <i class="fas fa-download"></i>
+                    Export Video
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
