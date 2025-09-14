@@ -1456,12 +1456,14 @@ function updateVideoPlayerWithOutput(outputFile) {
         console.log('Processed video element in DOM:', videoElement);
         console.log('Video src attribute:', videoElement?.src);
         
-        // Test the URL directly
-        fetch(videoUrl, { method: 'HEAD' })
+        // Test the URL directly with a simple GET request
+        fetch(videoUrl)
             .then(response => {
                 console.log(`🔗 URL test for ${videoUrl}:`, response.status, response.statusText);
                 if (!response.ok) {
                     console.error(`❌ URL ${videoUrl} is not accessible:`, response.status, response.statusText);
+                } else {
+                    console.log(`✅ URL ${videoUrl} is accessible and ready for video playback`);
                 }
             })
             .catch(error => {
@@ -2617,7 +2619,7 @@ function initializeChat() {
         
         // Try streaming first, with fallback to regular API
         const encodedPrompt = encodeURIComponent(instruction);
-        const streamUrl = `/api/ai/edit/stream/${fileId}?prompt=${encodedPrompt}&edit_type=vague`;
+        const streamUrl = `/api/ai/edit/stream/${fileId}?prompt=${encodedPrompt}&edit_type=specific`;
         
         console.log('📡 Attempting to connect to stream:', streamUrl);
         
@@ -2713,7 +2715,7 @@ function initializeChat() {
             body: JSON.stringify({
                 video_id: fileId,
                 prompt: instruction,
-                edit_type: 'vague'
+                edit_type: 'specific'
             })
         })
         .then(response => {
