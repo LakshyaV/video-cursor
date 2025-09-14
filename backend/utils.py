@@ -11,6 +11,10 @@ import shutil
 from pathlib import Path
 import speech_recognition as sr
 from pydub import AudioSegment
+import time
+import logging
+
+logger = logging.getLogger("video-cursor.ffmpeg")
 
 
 class FFmpegUtils:
@@ -27,7 +31,10 @@ class FFmpegUtils:
     def _check_ffmpeg(self):
         """Check if FFmpeg is available."""
         try:
-            subprocess.run([self.ffmpeg_path, '-version'], capture_output=True, check=True)
+            logger.debug("Checking FFmpeg at path: %s", self.ffmpeg_path)
+            proc = subprocess.run([self.ffmpeg_path, '-version'], capture_output=True, text=True, check=True)
+            first_line = proc.stdout.splitlines()[0] if proc.stdout else ""
+            logger.info("FFmpeg available: %s", first_line)
         except (subprocess.CalledProcessError, FileNotFoundError):
             # Try to find FFmpeg in common Windows locations
             common_paths = [
@@ -51,10 +58,25 @@ class FFmpegUtils:
     
     def _run_command(self, command, description="FFmpeg operation"):
         """Run FFmpeg command and return result."""
+        cmd_str = " ".join(map(str, command))
+        logger.info("[FFmpeg] %s | CMD: %s", description, cmd_str)
+        start = time.perf_counter()
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            logger.info("[FFmpeg] SUCCESS | %s | %.2fms", description, duration_ms)
+            if result.stderr:
+                logger.debug("[FFmpeg] STDERR: %s", result.stderr[:2000])
+            if result.stdout:
+                logger.debug("[FFmpeg] STDOUT: %s", result.stdout[:2000])
             return {"success": True, "output": result.stdout, "error": result.stderr}
         except subprocess.CalledProcessError as e:
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            logger.error("[FFmpeg] FAILURE | %s | %.2fms | code=%s", description, duration_ms, e.returncode)
+            if e.stderr:
+                logger.error("[FFmpeg] STDERR: %s", e.stderr[:4000])
+            if e.stdout:
+                logger.debug("[FFmpeg] STDOUT: %s", e.stdout[:2000])
             return {"success": False, "output": e.stdout, "error": e.stderr}
     
     def trim_video(self, input_path, output_path, start_time, duration, precise=False, ultra_precise=False):

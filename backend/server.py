@@ -13,6 +13,11 @@ import json
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import time
+import logging
+import sys
+import platform
+import contextvars
+import traceback
 
 # Import all backend modules
 from utils import FFmpegUtils
@@ -32,6 +37,38 @@ app = FastAPI(
     description="Complete video editing platform with AI-powered features"
 )
 
+# ---------------------
+# Logging Configuration
+# ---------------------
+# DEBUG is enabled by default to satisfy the requirement to "print out as much info as possible".
+DEBUG_ENV = os.getenv("DEBUG", "1").lower() in {"1", "true", "yes", "on"}
+
+# Per-request correlation ID for logs
+request_id_var = contextvars.ContextVar("request_id", default="-")
+
+class RequestIdFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+        try:
+            record.request_id = request_id_var.get()
+        except Exception:
+            record.request_id = "-"
+        return True
+
+LOG_FORMAT = "%(asctime)s | %(levelname)-8s | rid=%(request_id)s | %(name)s | %(message)s"
+logging.basicConfig(
+    level=logging.DEBUG if DEBUG_ENV else logging.INFO,
+    format=LOG_FORMAT,
+    stream=sys.stdout,
+)
+
+# Attach request id filter to root and uvicorn loggers
+for _lname in ("", "uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
+    _logger = logging.getLogger(_lname)
+    _logger.addFilter(RequestIdFilter())
+
+logger = logging.getLogger("video-cursor")
+logger.debug("Logging initialized (DEBUG=%s)", DEBUG_ENV)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -40,12 +77,150 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---------------------
+# Middleware: Request/Response Logging with timing and sizes
+# ---------------------
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    rid = request.headers.get("x-request-id", str(uuid.uuid4()))
+    request_id_var.set(rid)
+
+    start = time.perf_counter()
+    client = request.client.host if request.client else "-"
+    method = request.method
+    path = request.url.path
+    query = request.url.query
+    content_length = request.headers.get("content-length", "-")
+    content_type = request.headers.get("content-type", "-")
+
+    logger.info(
+        "--> %s %s%s from %s | len=%s | type=%s",
+        method,
+        path,
+        f"?{query}" if query else "",
+        client,
+        content_length,
+        content_type,
+    )
+
+    try:
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - start) * 1000.0
+        resp_len = response.headers.get("content-length", "-")
+        logger.info(
+            "<-- %s %s | %s | %.2fms | out=%s",
+            method,
+            path,
+            getattr(response, "status_code", "-"),
+            duration_ms,
+            resp_len,
+        )
+        # Propagate request id to client
+        response.headers["X-Request-ID"] = rid
+        return response
+    except Exception as e:
+        duration_ms = (time.perf_counter() - start) * 1000.0
+        logger.exception("!!! %s %s raised %s after %.2fms", method, path, type(e).__name__, duration_ms)
+        raise
+
+# ---------------------
+# Lifecycle events
+# ---------------------
+@app.on_event("startup")
+async def on_startup():
+    logger.info("Starting API: %s v%s", app.title, app.version)
+    logger.info("Python %s | Platform %s | PID %s | CWD %s", sys.version.split()[0], platform.platform(), os.getpid(), os.getcwd())
+    logger.info("Uploads dir: %s | Outputs dir: %s", str(Path("uploads").resolve()), str(Path("outputs").resolve()))
+    logger.info("Cohere available: %s | TwelveLabs available: %s", bool(os.getenv("COHERE_API_KEY")), bool(os.getenv("api_key_1")))
+    # List registered routes (brief)
+    for r in app.router.routes:
+        try:
+            logger.debug("Route: %-6s %s", ",".join(getattr(r, "methods", ["-"])), getattr(r, "path", "-"))
+        except Exception:
+            pass
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    logger.info("Shutting down API")
+
 # Serve static files (replaces Node.js server completely)
 # Public directory is in parent folder relative to backend
 public_dir = Path(__file__).parent.parent / "public"
 if not public_dir.exists():
     raise RuntimeError(f"Public directory not found at {public_dir}. Please ensure the 'public' folder exists in the project root.")
 app.mount("/static", StaticFiles(directory=str(public_dir)), name="static")
+
+# ---------------------
+# Debug/introspection endpoints
+# ---------------------
+@app.get("/api/debug/state")
+async def debug_state():
+    """Return extensive runtime diagnostics for debugging."""
+    try:
+        routes = []
+        for r in app.router.routes:
+            try:
+                routes.append({
+                    "path": getattr(r, "path", "-"),
+                    "methods": sorted(list(getattr(r, "methods", set()))) if getattr(r, "methods", None) else [],
+                    "name": getattr(r, "name", "-")
+                })
+            except Exception:
+                pass
+
+        # Basic dir listings (limited to names only)
+        uploads = [p.name for p in UPLOAD_DIR.glob("*") if p.is_file()][:100]
+        outputs = [p.name for p in OUTPUT_DIR.glob("*") if p.is_file()][:100]
+
+        env_flags = {
+            "DEBUG": DEBUG_ENV,
+            "COHERE_KEY": bool(os.getenv("COHERE_API_KEY")),
+            "TWELVELABS_KEY": bool(os.getenv("api_key_1")),
+        }
+
+        return {
+            "app": {"title": app.title, "version": app.version},
+            "system": {
+                "python": sys.version,
+                "platform": platform.platform(),
+                "pid": os.getpid(),
+                "cwd": os.getcwd(),
+            },
+            "paths": {
+                "public": str(public_dir.resolve()),
+                "uploads": str(UPLOAD_DIR.resolve()),
+                "outputs": str(OUTPUT_DIR.resolve()),
+            },
+            "features": {
+                "ffmpeg_utils": FFmpegUtils is not None,
+                "object_tracker": object_detector is not None,
+                "cohere": cohere_client is not None,
+                "twelvelabs": twelvelabs_client is not None,
+            },
+            "env": env_flags,
+            "routes": routes,
+            "sample_files": {"uploads": uploads, "outputs": outputs},
+        }
+    except Exception as e:
+        logger.exception("debug_state failed: %s", e)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+# ---------------------
+# Global exception handler (catch-all)
+# ---------------------
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    rid = request_id_var.get()
+    logger.error("Unhandled exception | rid=%s | %s %s | %s", rid, request.method, request.url.path, type(exc).__name__)
+    logger.error("Traceback:\n%s", "".join(traceback.format_exception(exc)))
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": str(exc),
+            "type": type(exc).__name__,
+            "request_id": rid,
+        },
+    )
 
 # Serve the main HTML file at root
 @app.get("/")
@@ -1513,7 +1688,9 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    log_level = "debug" if DEBUG_ENV else "info"
+    logger.info("Launching uvicorn with log_level=%s", log_level)
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level=log_level)
 
 UPLOAD_DIR = Path("uploads")
 OUTPUT_DIR = Path("outputs")
