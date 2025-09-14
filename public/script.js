@@ -1421,17 +1421,21 @@ function updateVideoPlayerWithOutput(outputFile) {
         window.lastProcessedFilename = outputFile;
         console.log(`💾 Stored processed filename: ${outputFile}`);
         
+        const videoUrl = `${API_BASE}/outputs/${outputFile}`;
+        console.log(`🔗 Processed video URL: ${videoUrl}`);
+        
         videoContent.innerHTML = `
             <video 
                 id="mainVideoPlayer" 
                 controls 
                 style="width: 100%; height: 100%; object-fit: contain; background: #000; border: 2px solid #28a745;"
-                onloadstart="console.log('Processed video loading started')"
-                oncanplay="console.log('Processed video can play')"
-                onerror="console.error('Processed video error:', this.error)"
+                onloadstart="console.log('Processed video loading started:', '${videoUrl}')"
+                oncanplay="console.log('Processed video can play:', '${videoUrl}')"
+                onerror="console.error('Processed video error:', this.error, 'URL:', '${videoUrl}')"
+                onload="console.log('Processed video loaded successfully:', '${videoUrl}')"
                 autoplay
             >
-                <source src="${API_BASE}/outputs/${outputFile}" type="video/mp4">
+                <source src="${videoUrl}" type="video/mp4">
                 Your browser does not support the video tag.
             </video>
             <div class="video-overlay" style="pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
@@ -1450,6 +1454,19 @@ function updateVideoPlayerWithOutput(outputFile) {
         // Verify the video element was created
         const videoElement = document.getElementById('mainVideoPlayer');
         console.log('Processed video element in DOM:', videoElement);
+        console.log('Video src attribute:', videoElement?.src);
+        
+        // Test the URL directly
+        fetch(videoUrl, { method: 'HEAD' })
+            .then(response => {
+                console.log(`🔗 URL test for ${videoUrl}:`, response.status, response.statusText);
+                if (!response.ok) {
+                    console.error(`❌ URL ${videoUrl} is not accessible:`, response.status, response.statusText);
+                }
+            })
+            .catch(error => {
+                console.error(`❌ Error testing URL ${videoUrl}:`, error);
+            });
         
         // Add a subtle animation to highlight the change
         videoContent.style.border = '2px solid #28a745';
