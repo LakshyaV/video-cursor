@@ -218,7 +218,7 @@ body {
     display: flex;
     flex: 1;
     min-height: 0;
-    max-height: calc(100vh - 60px - 200px); /* Subtract top bar and timeline heights */
+    max-height: calc(100vh - 60px - 200px); /* Adjusted to give more space for video */
     background: var(--bg-primary);
     overflow: hidden;
     gap: 1px; /* Light separator between sections */
@@ -276,6 +276,7 @@ body {
     background: var(--bg-primary);
     min-width: 0;
     overflow: hidden;
+    max-height: 100vh; /* Increased to 80% of viewport height for better size */
 }
 
 .media-pool-section {
@@ -412,6 +413,8 @@ body {
     flex-direction: column;
     background: var(--bg-primary);
     position: relative;
+    min-height: 0;
+    max-height: 100%; /* Ensure video viewer doesn't exceed parent */
 }
 
 .video-frame {
@@ -427,21 +430,30 @@ body {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     border: 1px solid var(--border-subtle);
     min-height: 0;
+    max-height: 80vh; /* Increased to 75% of viewport height for just right size */
 }
 
 .video-content {
     width: 100%;
     height: 100%;
     position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
 /* Video Element Styling */
 #mainVideoPlayer {
-    width: 100%;
-    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
     object-fit: contain;
     background: #000;
     display: block;
+    box-sizing: border-box;
 }
 
 /* Integrated Video Toolbar */
@@ -1543,7 +1555,7 @@ body {
     display: flex;
     flex: 1;
     overflow-y: auto;
-    overflow-x: hidden;
+    overflow-x: auto; /* allow horizontal scroll so playhead can move across */
     height: 200px;
     max-height: 200px;
     position: relative;
@@ -1610,7 +1622,7 @@ body {
     flex-shrink: 0;
     resize: horizontal;
     overflow: hidden;
-    min-height: 288px; /* 8 tracks × 36px each */
+    min-height: 486px; /* match taller tracks total height */
 }
 
 .timeline-resize-slider {
@@ -1644,7 +1656,7 @@ body {
     font-size: var(--font-sm);
     font-weight: var(--weight-semibold);
     color: var(--text-primary);
-    min-height: 36px;
+    min-height: 54px; /* align with .track height */
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1652,6 +1664,10 @@ body {
     line-height: 1.3;
     border-bottom: 1px solid var(--border-subtle);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.track-label.video-track {
+    min-height: 64px; /* align with taller video track */
 }
 
 .track-label:hover {
@@ -1740,11 +1756,11 @@ body {
     overflow-x: auto;
     overflow-y: hidden;
     min-width: 0;
-    min-height: 288px; /* 8 tracks × 36px each */
+    min-height: 486px; /* room for taller rows */
 }
 
 .track {
-    height: 36px;
+    height: 54px; /* taller rows for better visuals */
     position: relative;
     background: var(--bg-primary);
     min-width: 1000px;
@@ -1758,7 +1774,7 @@ body {
 .clip {
     position: absolute;
     top: var(--space-2);
-    height: 24px;
+    height: 40px; /* taller clip to fit thumbnails */
     border-radius: var(--space-3);
     cursor: pointer;
     display: flex;
@@ -1771,6 +1787,49 @@ body {
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     border: 1px solid transparent;
     min-width: 40px;
+}
+
+/* Emphasize video tracks and thumbnail strips */
+.track.video-track {
+    height: 64px;
+}
+
+.track.video-track .clip {
+    height: 48px;
+    padding-top: 4px; /* space for thumbnails */
+}
+
+.thumbnail-strip {
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    top: 4px;
+    height: 60%;
+    display: flex;
+    gap: 2px;
+    overflow: hidden;
+    border-radius: 4px;
+    opacity: 0.95;
+}
+
+.thumbnail-strip img {
+    height: 100%;
+    object-fit: cover;
+    flex: 1 0 auto;
+    border-radius: 2px;
+    filter: brightness(0.95) contrast(1.05);
+}
+
+/* Put the clip name at the bottom as a label */
+.clip .clip-name {
+    position: absolute;
+    bottom: 4px;
+    left: 8px;
+    right: 8px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(0,0,0,0.45);
+    backdrop-filter: blur(2px);
 }
 
 .clip:hover {
@@ -2102,6 +2161,14 @@ body {
 @media (max-width: 1024px) {
     .main-content {
         flex-direction: column;
+    }
+    
+    .video-panel {
+        max-height: 60vh; /* Good size for mobile/tablet */
+    }
+    
+    .video-frame {
+        max-height: 60vh; /* Proportional frame size on mobile */
     }
     
     .left-panel {

@@ -22,6 +22,344 @@ let currentVideoId = null;
 let uploadedFiles = new Map();
 let currentFileId = null;
 
+// ===== Timeline state (dynamic to match current footage) =====
+let timelineDurationSeconds = 300; // default fallback, will be replaced dynamically
+let audioContext = null;
+let analyserNode = null;
+let mediaElementSource = null;
+let waveformAnimationId = null;
+let currentWaveformBars = [];
+let playheadAnimationId = null;
+
+function setTimelineDuration(seconds) {
+    const safeSeconds = Math.max(0, Number(seconds) || 0);
+    timelineDurationSeconds = safeSeconds;
+    renderTimeRuler();
+    layoutClips();
+    updatePlayhead(0);
+}
+
+function renderTimeRuler() {
+    const ruler = document.querySelector('.time-ruler');
+    if (!ruler) return;
+    ruler.innerHTML = '';
+    const markers = 6; // 0%, 20%, ..., 100%
+    for (let i = 0; i < markers; i++) {
+        const t = (timelineDurationSeconds * i) / (markers - 1);
+        const m = document.createElement('div');
+        m.className = 'time-marker';
+        m.textContent = formatDuration(Math.floor(t));
+        ruler.appendChild(m);
+    }
+}
+
+function teardownWaveform() {
+    if (waveformAnimationId) {
+        cancelAnimationFrame(waveformAnimationId);
+        waveformAnimationId = null;
+    }
+    if (playheadAnimationId) {
+        cancelAnimationFrame(playheadAnimationId);
+        playheadAnimationId = null;
+    }
+    if (mediaElementSource) {
+        try { mediaElementSource.disconnect(); } catch (e) {}
+        mediaElementSource = null;
+    }
+    if (analyserNode) {
+        try { analyserNode.disconnect(); } catch (e) {}
+        analyserNode = null;
+    }
+    if (audioContext) {
+        try { audioContext.close(); } catch (e) {}
+        audioContext = null;
+    }
+    currentWaveformBars = [];
+}
+
+function setupWaveformForVideo(videoEl, barsContainer) {
+    teardownWaveform();
+    try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        audioContext = new AC();
+        analyserNode = audioContext.createAnalyser();
+        analyserNode.fftSize = 256;
+        analyserNode.smoothingTimeConstant = 0.85;
+        mediaElementSource = audioContext.createMediaElementSource(videoEl);
+        // Connect directly to destination to allow audio playback
+        mediaElementSource.connect(analyserNode);
+        analyserNode.connect(audioContext.destination);
+    } catch (e) {
+        console.warn('Waveform setup failed:', e);
+        return;
+    }
+
+    const numBars = 48;
+    barsContainer.innerHTML = '';
+    currentWaveformBars = [];
+    for (let i = 0; i < numBars; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'waveform-bar';
+        bar.style.height = '20%';
+        barsContainer.appendChild(bar);
+        currentWaveformBars.push(bar);
+    }
+
+    function draw() {
+        if (!analyserNode) return;
+        const freqData = new Uint8Array(analyserNode.frequencyBinCount);
+        analyserNode.getByteFrequencyData(freqData);
+        const step = Math.floor(freqData.length / currentWaveformBars.length) || 1;
+        for (let i = 0; i < currentWaveformBars.length; i++) {
+            let sum = 0;
+            for (let j = 0; j < step; j++) {
+                sum += freqData[i * step + j] || 0;
+            }
+            const avg = sum / step; // 0..255
+            const h = Math.max(6, Math.min(100, (avg / 255) * 100));
+            currentWaveformBars[i].style.height = h + '%';
+        }
+        waveformAnimationId = requestAnimationFrame(draw);
+    }
+
+    const ensureRunning = () => {
+        if (audioContext && audioContext.state === 'suspended') {
+            audioContext.resume().catch(() => {});
+        }
+        if (!waveformAnimationId) draw();
+    };
+    videoEl.addEventListener('play', ensureRunning);
+}
+
+function renderAudioTrackClip() {
+    const tracksRoot = document.querySelector('.timeline-tracks');
+    if (!tracksRoot) return;
+
+    // Prefer A1 voiceover track; fall back to A2 music, then A3 audio
+    let track = document.querySelector('.timeline-tracks .track.voiceover-track[data-track="a1"]') ||
+                document.querySelector('.timeline-tracks .track.music-track[data-track="a2"]') ||
+                document.querySelector('.timeline-tracks .track.audio-track[data-track="a3"]');
+    if (!track) return;
+
+    // Create or reuse generated audio clip
+    let clip = track.querySelector('.clip[data-generated="audio"]');
+    if (!clip) {
+        clip = document.createElement('div');
+        clip.className = 'clip voiceover-clip';
+        clip.setAttribute('data-generated', 'audio');
+        track.appendChild(clip);
+        const waveform = document.createElement('div');
+        waveform.className = 'waveform';
+        clip.appendChild(waveform);
+        const name = document.createElement('span');
+        name.className = 'clip-name';
+        name.textContent = 'Audio from Current Video';
+        clip.appendChild(name);
+        const videoEl = document.getElementById('mainVideoPlayer');
+        if (videoEl) {
+            setupWaveformForVideo(videoEl, waveform);
+        }
+    }
+
+    const videoEl = document.getElementById('mainVideoPlayer');
+    const duration = (videoEl && isFinite(videoEl.duration)) ? Number(videoEl.duration) : timelineDurationSeconds;
+    registerClip(clip, 0, duration);
+}
+
+function renderMainVideoClip() {
+    const track = document.querySelector('.timeline-tracks .track.video-track[data-track="v1"]');
+    if (!track) return;
+    let clip = track.querySelector('.clip[data-generated="video"]');
+    if (!clip) {
+        clip = document.createElement('div');
+        clip.className = 'clip dialogue-clip';
+        clip.setAttribute('data-generated', 'video');
+        const thumbs = document.createElement('div');
+        thumbs.className = 'thumbnail-strip';
+        clip.appendChild(thumbs);
+        const name = document.createElement('span');
+        name.className = 'clip-name';
+        name.textContent = 'Main Video';
+        clip.appendChild(name);
+        track.appendChild(clip);
+    }
+    const videoEl = document.getElementById('mainVideoPlayer');
+    const duration = (videoEl && isFinite(videoEl.duration)) ? Number(videoEl.duration) : timelineDurationSeconds;
+    registerClip(clip, 0, duration);
+
+    // Build thumbnails for the visible portion
+    const thumbsContainer = clip.querySelector('.thumbnail-strip');
+    if (videoEl && thumbsContainer) {
+        buildThumbnailStrip(videoEl, thumbsContainer);
+    }
+}
+
+function registerClip(clipEl, startSeconds, durationSeconds) {
+    clipEl.setAttribute('data-start-seconds', String(Math.max(0, Number(startSeconds) || 0)));
+    clipEl.setAttribute('data-duration-seconds', String(Math.max(0, Number(durationSeconds) || 0)));
+    layoutClips();
+}
+
+function layoutClips() {
+    const clips = document.querySelectorAll('.timeline-tracks .clip[data-start-seconds][data-duration-seconds]');
+    clips.forEach(clip => {
+        const start = Number(clip.getAttribute('data-start-seconds')) || 0;
+        const dur = Number(clip.getAttribute('data-duration-seconds')) || 0;
+        const total = timelineDurationSeconds || 1;
+        const leftPct = (start / total) * 100;
+        const widthPct = (dur / total) * 100;
+        clip.style.left = Math.max(0, Math.min(100, leftPct)) + '%';
+        clip.style.width = Math.max(0, Math.min(100, widthPct)) + '%';
+    });
+}
+
+function recomputeTimelineDuration(scaleFactor = 1.5) {
+    // Longest clip wins; fallback to video element
+    let longest = 0;
+    document.querySelectorAll('.timeline-tracks .clip[data-start-seconds][data-duration-seconds]').forEach(clip => {
+        const dur = Number(clip.getAttribute('data-duration-seconds')) || 0;
+        if (dur > longest) longest = dur;
+    });
+    if (longest <= 0) {
+        const videoEl = document.getElementById('mainVideoPlayer');
+        if (videoEl && isFinite(videoEl.duration)) longest = Number(videoEl.duration) || 0;
+    }
+    if (longest <= 0) longest = 300; // fallback
+    setTimelineDuration(longest * scaleFactor);
+}
+
+function buildTimelineForVideo(videoEl) {
+    // Remove previously generated clips
+    document.querySelectorAll('.timeline-tracks .clip[data-generated]').forEach(c => c.parentElement && c.parentElement.removeChild(c));
+    // Build main video and audio representations
+    renderMainVideoClip();
+    renderAudioTrackClip();
+    recomputeTimelineDuration(1.5);
+    attachVideoSyncListeners(videoEl);
+    enableClickSeekOnVideo(videoEl);
+}
+
+function attachVideoSyncListeners(videoEl) {
+    if (!videoEl) return;
+    const onPlay = () => {
+        if (playheadAnimationId) cancelAnimationFrame(playheadAnimationId);
+        const tick = () => {
+            updateTimeFromSeconds(videoEl.currentTime);
+            updatePlayhead(videoEl.currentTime);
+            if (!videoEl.paused && !videoEl.ended) {
+                playheadAnimationId = requestAnimationFrame(tick);
+            }
+        };
+        playheadAnimationId = requestAnimationFrame(tick);
+    };
+    const onPause = () => {
+        if (playheadAnimationId) {
+            cancelAnimationFrame(playheadAnimationId);
+            playheadAnimationId = null;
+        }
+    };
+    videoEl.removeEventListener('play', onPlay);
+    videoEl.removeEventListener('pause', onPause);
+    videoEl.addEventListener('play', onPlay);
+    videoEl.addEventListener('pause', onPause);
+}
+
+function enableClickSeekOnVideo(videoEl) {
+    if (!videoEl) return;
+    const handler = (e) => {
+        const rect = videoEl.getBoundingClientRect();
+        const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+        const ratio = rect.width > 0 ? (x / rect.width) : 0;
+        const target = (Number(videoEl.duration) || 0) * ratio;
+        if (isFinite(target)) {
+            e.preventDefault();
+            e.stopPropagation();
+            seekVideoTo(target);
+        }
+    };
+    videoEl.removeEventListener('click', handler);
+    videoEl.addEventListener('click', handler);
+}
+
+function seekVideoTo(seconds) {
+    const video = document.getElementById('mainVideoPlayer');
+    if (!video || !isFinite(seconds)) return;
+    const duration = Number(video.duration) || 0;
+    const clamped = Math.max(0, Math.min(duration > 0 ? duration : seconds, seconds));
+    const wasPaused = video.paused;
+    try { video.pause(); } catch (e) {}
+    const finalize = () => {
+        updateTimeFromSeconds(video.currentTime);
+        updatePlayhead(video.currentTime);
+        if (!wasPaused) {
+            try { video.play().catch(() => {}); } catch (e) {}
+        }
+    };
+    if (video.readyState < 1 || isNaN(duration)) {
+        video.addEventListener('loadedmetadata', () => {
+            try { video.currentTime = clamped; } catch (e) {}
+            video.addEventListener('seeked', finalize, { once: true });
+        }, { once: true });
+    } else {
+        const onSeeked = () => finalize();
+        video.addEventListener('seeked', onSeeked, { once: true });
+        try { video.currentTime = clamped; } catch (e) {}
+    }
+}
+
+// Lightweight in-browser thumbnail strip generator
+let thumbStripBusy = false;
+async function buildThumbnailStrip(videoEl, container) {
+    if (thumbStripBusy) return; // avoid overlapping work
+    thumbStripBusy = true;
+    try {
+        // Use an offscreen probe video to avoid altering the main player's time
+        const probe = document.createElement('video');
+        probe.muted = true;
+        probe.preload = 'auto';
+        probe.crossOrigin = 'anonymous';
+        probe.src = videoEl.currentSrc || (videoEl.querySelector('source') && videoEl.querySelector('source').src) || '';
+        await new Promise(res => probe.addEventListener('loadedmetadata', res, { once: true }));
+        const total = Number(probe.duration);
+        if (!isFinite(total) || total <= 0) return;
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const clipWidth = container.clientWidth || 300;
+        const clipHeight = container.clientHeight || 28;
+        const targetThumbs = Math.min(12, Math.max(6, Math.floor(clipWidth / 40)));
+        container.innerHTML = '';
+        const step = total / targetThumbs;
+        canvas.width = 160;
+        canvas.height = Math.max(90, Math.floor((clipHeight / 0.6) | 0));
+        const captureAt = async (t) => {
+            return new Promise(resolve => {
+                const onSeeked = () => {
+                    ctx.drawImage(probe, 0, 0, canvas.width, canvas.height);
+                    const img = new Image();
+                    img.src = canvas.toDataURL('image/jpeg', 0.65);
+                    img.onload = () => resolve(img);
+                };
+                probe.addEventListener('seeked', onSeeked, { once: true });
+                try { probe.currentTime = Math.min(Math.max(0, t), total - 0.05); } catch(e) { resolve(null); }
+            });
+        };
+        for (let i = 0; i < targetThumbs; i++) {
+            const t = i * step + step * 0.5;
+            // eslint-disable-next-line no-await-in-loop
+            const img = await captureAt(t);
+            if (img) {
+                img.decoding = 'async';
+                img.loading = 'lazy';
+                container.appendChild(img);
+            }
+        }
+    } catch (e) {
+        console.warn('Thumbnail strip build failed:', e);
+    } finally {
+        thumbStripBusy = false;
+    }
+}
+
 function initializeInterface() {
     // Set initial time display with smooth animation
     updateTimeDisplay();
@@ -189,6 +527,10 @@ function initializeVideoControls() {
         if (playbackInterval) {
             clearInterval(playbackInterval);
         }
+        if (playheadAnimationId) {
+            cancelAnimationFrame(playheadAnimationId);
+            playheadAnimationId = null;
+        }
     }
     
     function stopPlayback() {
@@ -203,14 +545,35 @@ function initializeVideoControls() {
         if (playbackInterval) {
             clearInterval(playbackInterval);
         }
+        if (playheadAnimationId) {
+            cancelAnimationFrame(playheadAnimationId);
+            playheadAnimationId = null;
+        }
     }
     
     function startPlayback() {
-        // Simulate smooth playback
+        // Drive from real video element if available
+        const video = document.getElementById('mainVideoPlayer');
+        if (video) {
+            video.play().catch(() => {});
+            const tick = () => {
+                updateTimeFromSeconds(video.currentTime);
+                updatePlayhead(video.currentTime);
+                if (!video.paused && !video.ended) {
+                    playheadAnimationId = requestAnimationFrame(tick);
+                }
+            };
+            if (playheadAnimationId) cancelAnimationFrame(playheadAnimationId);
+            playheadAnimationId = requestAnimationFrame(tick);
+            // Keep reference via closure to cancel
+            playbackInterval = { stop: () => { if (playheadAnimationId) { cancelAnimationFrame(playheadAnimationId); playheadAnimationId = null; } } };
+            return;
+        }
+        // Fallback simulation
         playbackInterval = setInterval(() => {
             if (isPlaying) {
                 currentTime += 0.1;
-                updateTimeDisplay();
+                updateTimeFromSeconds(currentTime);
                 updatePlayhead(currentTime);
             }
         }, 100);
@@ -277,20 +640,32 @@ function initializeTimeline() {
     // Enhanced timeline interactions
     const timeline = document.querySelector('.timeline');
     const playhead = document.querySelector('.playhead');
+    // Render initial ruler
+    renderTimeRuler();
     
     if (timeline && playhead) {
         timeline.addEventListener('click', function(e) {
-            const rect = this.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const percentage = (x / rect.width) * 100;
+            // Ignore clicks on labels area
+            if (e.target.closest('.track-labels')) return;
+            const tracks = document.querySelector('.timeline-tracks');
+            const scrollContainer = document.querySelector('.timeline-scroll-container');
+            if (!tracks) return;
+            const tracksRect = tracks.getBoundingClientRect();
+            let localX = e.clientX - tracksRect.left; // relative to visible tracks area
+            if (localX < 0) localX = 0;
+            const totalWidth = (tracks.scrollWidth || tracks.offsetWidth || tracksRect.width);
+            const scrollLeft = scrollContainer ? scrollContainer.scrollLeft : 0;
+            const absoluteX = localX + scrollLeft;
+            const percentage = Math.min(100, Math.max(0, (absoluteX / totalWidth) * 100));
             
             // Smooth playhead movement
             playhead.style.transition = 'left 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
             playhead.style.left = percentage + '%';
             
             // Update time display based on position
-            const timeInSeconds = (percentage / 100) * 300;
+            const timeInSeconds = (percentage / 100) * timelineDurationSeconds;
             updateTimeFromSeconds(timeInSeconds);
+            seekVideoTo(timeInSeconds);
             
             // Remove transition after animation
             setTimeout(() => {
@@ -570,8 +945,23 @@ function updateTimeFromSeconds(seconds) {
 function updatePlayhead(position) {
     const playhead = document.querySelector('.playhead');
     if (playhead) {
-        const percentage = (position / 300) * 100;
+        const denominator = timelineDurationSeconds || 1;
+        const percentage = (position / denominator) * 100;
         playhead.style.left = Math.min(100, Math.max(0, percentage)) + '%';
+        // Auto-scroll timeline so playhead stays visible
+        const scrollContainer = document.querySelector('.timeline-scroll-container');
+        const tracks = document.querySelector('.timeline-tracks');
+        if (scrollContainer && tracks) {
+            const containerWidth = scrollContainer.clientWidth;
+            const totalWidth = tracks.scrollWidth || tracks.clientWidth;
+            const x = (percentage / 100) * totalWidth;
+            const desiredLeft = Math.max(0, x - containerWidth * 0.2);
+            const desiredRight = x + containerWidth * 0.2;
+            const needScroll = desiredLeft < scrollContainer.scrollLeft || desiredRight > scrollContainer.scrollLeft + containerWidth;
+            if (needScroll) {
+                scrollContainer.scrollTo({ left: Math.max(0, x - containerWidth * 0.5), behavior: 'auto' });
+            }
+        }
     }
 }
 
@@ -1386,7 +1776,7 @@ function updateVideoPlayer(fileId) {
             <video 
                 id="mainVideoPlayer" 
                 controls 
-                style="width: 100%; height: 100%; object-fit: contain; background: #000; border: 2px solid #4a9eff;"
+                style="max-width: 100%; max-height: 100%; width: 100vh; height: 100vh; object-fit: contain; background: #000; border: 2px solid #4a9eff;"
                 onloadstart="console.log('Original video loading started')"
                 oncanplay="console.log('Original video can play')"
                 onerror="console.error('Original video error:', this.error)"
@@ -1407,6 +1797,19 @@ function updateVideoPlayer(fileId) {
         }
         
         console.log('Original video element created and inserted into video-content');
+        const videoEl = document.getElementById('mainVideoPlayer');
+        if (videoEl) {
+            // Update timeline based on metadata and build clips (1.5× scale)
+            const updateDuration = () => {
+                const d = Number(videoEl.duration);
+                if (isFinite(d) && d > 0) buildTimelineForVideo(videoEl);
+            };
+            videoEl.addEventListener('loadedmetadata', updateDuration, { once: true });
+            // Fallback in case metadata is cached
+            if (!isNaN(videoEl.duration) && isFinite(videoEl.duration) && videoEl.duration > 0) {
+                buildTimelineForVideo(videoEl);
+            }
+        }
     } else {
         console.error('video-content element not found for original video!');
     }
@@ -1428,7 +1831,7 @@ function updateVideoPlayerWithOutput(outputFile) {
             <video 
                 id="mainVideoPlayer" 
                 controls 
-                style="width: 100%; height: 100%; object-fit: contain; background: #000; border: 2px solid #28a745;"
+                style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; background: #000; border: 2px solid #28a745;"
                 onloadstart="console.log('Processed video loading started:', '${videoUrl}')"
                 oncanplay="console.log('Processed video can play:', '${videoUrl}')"
                 onerror="console.error('Processed video error:', this.error, 'URL:', '${videoUrl}')"
@@ -1455,13 +1858,26 @@ function updateVideoPlayerWithOutput(outputFile) {
         const videoElement = document.getElementById('mainVideoPlayer');
         console.log('Processed video element in DOM:', videoElement);
         console.log('Video src attribute:', videoElement?.src);
+
+        if (videoElement) {
+            const updateDuration = () => {
+                const d = Number(videoElement.duration);
+                if (isFinite(d) && d > 0) buildTimelineForVideo(videoElement);
+            };
+            videoElement.addEventListener('loadedmetadata', updateDuration, { once: true });
+            if (!isNaN(videoElement.duration) && isFinite(videoElement.duration) && videoElement.duration > 0) {
+                buildTimelineForVideo(videoElement);
+            }
+        }
         
-        // Test the URL directly
-        fetch(videoUrl, { method: 'HEAD' })
+        // Test the URL directly with a simple GET request
+        fetch(videoUrl)
             .then(response => {
                 console.log(`🔗 URL test for ${videoUrl}:`, response.status, response.statusText);
                 if (!response.ok) {
                     console.error(`❌ URL ${videoUrl} is not accessible:`, response.status, response.statusText);
+                } else {
+                    console.log(`✅ URL ${videoUrl} is accessible and ready for video playback`);
                 }
             })
             .catch(error => {
@@ -2617,7 +3033,7 @@ function initializeChat() {
         
         // Try streaming first, with fallback to regular API
         const encodedPrompt = encodeURIComponent(instruction);
-        const streamUrl = `/api/ai/edit/stream/${fileId}?prompt=${encodedPrompt}&edit_type=vague`;
+        const streamUrl = `/api/ai/edit/stream/${fileId}?prompt=${encodedPrompt}&edit_type=specific`;
         
         console.log('📡 Attempting to connect to stream:', streamUrl);
         
@@ -2713,7 +3129,7 @@ function initializeChat() {
             body: JSON.stringify({
                 video_id: fileId,
                 prompt: instruction,
-                edit_type: 'vague'
+                edit_type: 'specific'
             })
         })
         .then(response => {
@@ -2897,7 +3313,7 @@ function displayVideoInViewer(fileId, fileName) {
             <video 
                 id="mainVideoPlayer" 
                 controls 
-                style="width: 100%; height: 100%; object-fit: contain; background: #000; border: 2px solid #4a9eff;"
+                style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; background: #000; border: 2px solid #4a9eff;"
                 onloadstart="console.log('Video loading started')"
                 oncanplay="console.log('Video can play')"
                 onerror="console.error('Video error:', this.error)"

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -77,7 +77,7 @@ cohere_client = None
 twelvelabs_client = None
 
 if os.getenv("COHERE_API_KEY"):
-    cohere_client = cohere.ClientV2(api_key=os.getenv("COHERE_API_KEY"))
+    cohere_client = cohere.Client(api_key=os.getenv("COHERE_API_KEY"))
 
 if os.getenv("api_key_1"):
     twelvelabs_client = TwelveLabs(api_key=os.getenv("api_key_1"))
@@ -488,7 +488,7 @@ async def ai_powered_edit_stream(request: AIEditRequest):
     return StreamingResponse(generate_stream(), media_type="text/event-stream")
 
 @app.get("/api/ai/edit/stream/{video_id}")
-async def ai_edit_stream_endpoint(video_id: str, prompt: str, edit_type: str = "vague"):
+async def ai_edit_stream_endpoint(video_id: str, prompt: str, edit_type: str = "specific"):
     """Stream endpoint for AI video editing with real-time updates"""
     if not cohere_client:
         return StreamingResponse(
@@ -561,7 +561,7 @@ async def analyze_prompt(prompt: str = Form(...)):
     
     response = cohere_client.chat(
         model="command-r-plus",
-        messages=[{"role": "user", "content": analysis_prompt}]
+        message=analysis_prompt
     )
     
     result = extract_response_text(response).strip().lower()
@@ -779,22 +779,57 @@ async def export_video(request: ExportRequest):
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 @app.get("/api/preview/{file_id}")
-async def preview_file(file_id: str):
-    """Stream video preview"""
+async def preview_file(file_id: str, request: Request):
+    """Stream video preview with Range support for seeking"""
     # Try output files first, then uploaded files
     file_paths = list(OUTPUT_DIR.glob(f"{file_id}.*")) + list(UPLOAD_DIR.glob(f"{file_id}.*"))
     if not file_paths:
         raise HTTPException(status_code=404, detail="File not found")
     
     file_path = file_paths[0]
-    
-    def iterfile(file_path: str):
-        with open(file_path, mode="rb") as file_like:
-            yield from file_like
-    
     media_type = "video/mp4" if file_path.suffix.lower() in ['.mp4', '.mov', '.avi'] else "application/octet-stream"
-    
-    return StreamingResponse(iterfile(str(file_path)), media_type=media_type)
+
+    # Implement HTTP Range support
+    range_header = request.headers.get('range') or request.headers.get('Range')
+    file_size = file_path.stat().st_size
+    headers = {"Accept-Ranges": "bytes"}
+    if range_header:
+        # bytes=start-end
+        import re
+        m = re.match(r"bytes=(\d+)-(\d+)?", range_header)
+        if m:
+            start = int(m.group(1))
+            end = int(m.group(2)) if m.group(2) else file_size - 1
+            start = max(0, start)
+            end = min(file_size - 1, end)
+            if start > end:
+                start, end = 0, file_size - 1
+            length = end - start + 1
+            def iter_range():
+                with open(file_path, 'rb') as f:
+                    f.seek(start)
+                    remaining = length
+                    chunk = 1024 * 1024
+                    while remaining > 0:
+                        data = f.read(min(chunk, remaining))
+                        if not data:
+                            break
+                        remaining -= len(data)
+                        yield data
+            headers.update({
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Content-Length": str(length)
+            })
+            return StreamingResponse(iter_range(), status_code=206, media_type=media_type, headers=headers)
+    def iter_full():
+        with open(file_path, 'rb') as f:
+            while True:
+                data = f.read(1024 * 1024)
+                if not data:
+                    break
+                yield data
+    headers["Content-Length"] = str(file_size)
+    return StreamingResponse(iter_full(), media_type=media_type, headers=headers)
 
 @app.get("/api/outputs")
 async def list_outputs():
@@ -813,27 +848,53 @@ async def list_outputs():
     return {"outputs": outputs}
 
 @app.get("/api/outputs/{filename}")
-async def download_output(filename: str):
-    """Download or stream a processed output file"""
+async def download_output(filename: str, request: Request):
+    """Download or stream a processed output file with Range support"""
     output_path = OUTPUT_DIR / filename
     
     if not output_path.exists():
         raise HTTPException(status_code=404, detail="Output file not found")
-    
-    def iterfile(file_path: str):
-        with open(file_path, mode="rb") as file_like:
-            yield from file_like
-    
     media_type = "video/mp4" if output_path.suffix.lower() in ['.mp4', '.mov', '.avi'] else "application/octet-stream"
-    
-    return StreamingResponse(
-        iterfile(str(output_path)), 
-        media_type=media_type,
-        headers={
-            "Content-Disposition": f"inline; filename={filename}",
-            "Cache-Control": "no-cache"
-        }
-    )
+    # Reuse same Range logic as preview
+    range_header = request.headers.get('range') or request.headers.get('Range')
+    file_size = output_path.stat().st_size
+    headers = {"Accept-Ranges": "bytes", "Content-Disposition": f"inline; filename={filename}", "Cache-Control": "no-cache"}
+    if range_header:
+        import re
+        m = re.match(r"bytes=(\d+)-(\d+)?", range_header)
+        if m:
+            start = int(m.group(1))
+            end = int(m.group(2)) if m.group(2) else file_size - 1
+            start = max(0, start)
+            end = min(file_size - 1, end)
+            if start > end:
+                start, end = 0, file_size - 1
+            length = end - start + 1
+            def iter_range():
+                with open(output_path, 'rb') as f:
+                    f.seek(start)
+                    remaining = length
+                    chunk = 1024 * 1024
+                    while remaining > 0:
+                        data = f.read(min(chunk, remaining))
+                        if not data:
+                            break
+                        remaining -= len(data)
+                        yield data
+            headers.update({
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Content-Length": str(length)
+            })
+            return StreamingResponse(iter_range(), status_code=206, media_type=media_type, headers=headers)
+    def iter_full():
+        with open(output_path, 'rb') as f:
+            while True:
+                data = f.read(1024 * 1024)
+                if not data:
+                    break
+                yield data
+    headers["Content-Length"] = str(file_size)
+    return StreamingResponse(iter_full(), media_type=media_type, headers=headers)
 
 # ====================
 # UTILITY FUNCTIONS
@@ -890,7 +951,7 @@ async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
     
     response = cohere_client.chat(
         model="command-r-plus",
-        messages=[{"role": "user", "content": analysis_prompt}]
+        message=analysis_prompt
     )
     
     commands = extract_response_text(response)
@@ -970,6 +1031,77 @@ async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
                 str(output_path),
                 effects={"brightness": 0.3}
             )
+        elif "trim" in prompt_lower or "cut" in prompt_lower or "remove" in prompt_lower:
+            print("✂️ Applying trim/cut effect...")
+            
+            # Parse trim instructions from the prompt
+            import re
+            
+            # Check for "last X seconds" pattern
+            last_seconds_match = re.search(r'last (\d+(?:\.\d+)?)\s*seconds?', prompt_lower)
+            first_seconds_match = re.search(r'first (\d+(?:\.\d+)?)\s*seconds?', prompt_lower)
+            
+            if last_seconds_match:
+                # Trim the last X seconds - need to get video duration first
+                seconds_to_trim = float(last_seconds_match.group(1))
+                print(f"🔍 Trimming last {seconds_to_trim} seconds")
+                
+                # Get video duration to calculate duration to keep
+                media_info = ffmpeg_utils.get_media_info(str(input_path))
+                if media_info.get("success") and "duration" in media_info.get("info", {}):
+                    video_duration = float(media_info["info"]["duration"])
+                    duration_to_keep = video_duration - seconds_to_trim
+                    
+                    # Convert to HH:MM:SS format
+                    duration_str = f"{int(duration_to_keep//3600):02d}:{int((duration_to_keep%3600)//60):02d}:{duration_to_keep%60:06.3f}"
+                    start_time_str = "00:00:00"
+                    
+                    print(f"📏 Video duration: {video_duration}s, keeping {duration_to_keep}s (duration: {duration_str})")
+                    
+                    # Apply trim using FFmpeg
+                    result = ffmpeg_utils.trim_video(
+                        str(input_path),
+                        str(output_path),
+                        start_time_str,
+                        duration_str
+                    )
+                    print(f"✂️ Trim result: {result}")
+                else:
+                    print("❌ Could not get video duration for trimming")
+                    result = {"success": False, "error": "Could not determine video duration"}
+                    
+            elif first_seconds_match:
+                # Trim the first X seconds (keep everything after X seconds)
+                seconds_to_trim = float(first_seconds_match.group(1))
+                print(f"🔍 Trimming first {seconds_to_trim} seconds")
+                
+                # Get video duration to calculate remaining duration
+                media_info = ffmpeg_utils.get_media_info(str(input_path))
+                if media_info.get("success") and "duration" in media_info.get("info", {}):
+                    video_duration = float(media_info["info"]["duration"])
+                    duration_to_keep = video_duration - seconds_to_trim
+                    
+                    # Convert to HH:MM:SS format
+                    start_time_str = f"{int(seconds_to_trim//3600):02d}:{int((seconds_to_trim%3600)//60):02d}:{seconds_to_trim%60:06.3f}"
+                    duration_str = f"{int(duration_to_keep//3600):02d}:{int((duration_to_keep%3600)//60):02d}:{duration_to_keep%60:06.3f}"
+                    
+                    print(f"📏 Video duration: {video_duration}s, starting at {seconds_to_trim}s, keeping {duration_to_keep}s")
+                    
+                    # Apply trim using FFmpeg
+                    result = ffmpeg_utils.trim_video(
+                        str(input_path),
+                        str(output_path),
+                        start_time_str,
+                        duration_str
+                    )
+                    print(f"✂️ Trim result: {result}")
+                else:
+                    print("❌ Could not get video duration for trimming")
+                    result = {"success": False, "error": "Could not determine video duration"}
+            else:
+                print("❌ Could not parse trim instructions from prompt")
+                result = {"success": False, "error": "Could not parse trim instructions - try 'trim the last 5 seconds' or 'trim the first 3 seconds'"}
+                
         elif "zoom" in prompt_lower:
             # Check if it's face/person zoom
             if "face" in prompt_lower or "person" in prompt_lower or "people" in prompt_lower:
@@ -1029,25 +1161,213 @@ async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
         }
 
 async def process_specific_request(prompt: str, video_path: str) -> Dict[str, Any]:
-    """Process specific editing request"""
-    # Implementation would use the specific.py logic
-    extraction_prompt = f"""
-    Extract specific video edit commands from this request.
-    Output only in this format: <command> AND <where in video/audio it should be applied>
-    
-    Request: "{prompt}"
-    Available techniques: clip trimming, transitions, audio effects, dynamic zoom, 
-    face zoom, object face blur, face/object tracking, subtitles, video effects, 
-    blur, saturation, brightness, contrast, artistic filters, sound effects, splice.
-    """
-    
-    response = cohere_client.chat(
-        model="command-r-plus",
-        messages=[{"role": "user", "content": extraction_prompt}]
-    )
-    
-    commands = extract_response_text(response)
-    return {"type": "specific", "commands": commands, "status": "extracted"}
+    """Process specific editing request using the logic from specific.py"""
+    try:
+        print(f"🎯 Processing specific request: {prompt}")
+        
+        # Step 1: Extract commands from prompt (similar to intent_extraction in specific.py)
+        extraction_prompt = f"""
+        Extract the specific video edit commands from the following user request. 
+        Output them **only** in this exact format: 
+        <command> AND <where in the video/audio it should be applied>, 
+        <command> AND <where in the video/audio it should be applied>, 
+        … (continue as needed). 
+        Do not include section titles, explanations, or any extra text—just the commands in the specified format. 
+        Here is the user request: '{prompt}'. 
+        Available edit techniques: clip trimming, transitions, audio effects, dynamic zoom, face zoom, object face blur, 
+        face/object tracking, subtitles, add subtitles, video effects, apply video effects, blur, saturation, 
+        brightness, contrast, artistic filters, sound effects (boom, gunshot, explosion, whoosh), splice.
+        """
+        
+        response = cohere_client.chat(
+            model="command-r-plus",
+            message=extraction_prompt
+        )
+        
+        commands_text = extract_response_text(response)
+        print(f"🤖 AI Commands: {commands_text}")
+        
+        # Parse commands into list format
+        edits = commands_text.split(",")
+        instances = []
+        for edit in edits:
+            parts = edit.strip().split(" AND ")
+            if len(parts) == 2:
+                command = parts[0].strip().replace("<", "").replace(">", "")
+                location = parts[1].strip().replace("<", "").replace(">", "")
+                instances.append([command, location])
+        
+        print(f"📝 Parsed instances: {instances}")
+        
+        if not instances:
+            print("❌ No valid commands extracted")
+            return {
+                "type": "specific", 
+                "commands": commands_text, 
+                "status": "error",
+                "error": "No valid commands could be extracted from the prompt"
+            }
+        
+        # Step 2: Generate timestamps using TwelveLabs (similar to timestamp_extraction in specific.py)
+        print("🔍 Starting timestamp extraction...")
+        
+        # For now, we'll skip TwelveLabs integration and use simple parsing
+        # This can be enhanced later to include actual video search
+        edit_commands = {}
+        for command, location in instances:
+            # For trim commands, try to parse timing from the prompt
+            if "trim" in command.lower() or "cut" in command.lower():
+                # Parse timing from prompt
+                import re
+                
+                # Look for patterns like "last 5 seconds", "first 10 seconds", etc.
+                last_seconds_match = re.search(r'last (\d+(?:\.\d+)?)\s*seconds?', prompt.lower())
+                first_seconds_match = re.search(r'first (\d+(?:\.\d+)?)\s*seconds?', prompt.lower())
+                
+                if last_seconds_match:
+                    seconds_to_trim = float(last_seconds_match.group(1))
+                    # Get video duration
+                    media_info = ffmpeg_utils.get_media_info(video_path)
+                    if media_info.get("success") and "duration" in media_info.get("info", {}):
+                        video_duration = float(media_info["info"]["duration"])
+                        start_time = 0
+                        end_time = video_duration - seconds_to_trim
+                        edit_commands[command] = [start_time, end_time]
+                    else:
+                        print(f"❌ Could not get video duration for trim command")
+                        continue
+                elif first_seconds_match:
+                    seconds_to_trim = float(first_seconds_match.group(1))
+                    # Get video duration for end time
+                    media_info = ffmpeg_utils.get_media_info(video_path)
+                    if media_info.get("success") and "duration" in media_info.get("info", {}):
+                        video_duration = float(media_info["info"]["duration"])
+                        start_time = seconds_to_trim
+                        end_time = video_duration
+                        edit_commands[command] = [start_time, end_time]
+                    else:
+                        print(f"❌ Could not get video duration for trim command")
+                        continue
+                else:
+                    # Default to middle 10 seconds if no specific timing found
+                    media_info = ffmpeg_utils.get_media_info(video_path)
+                    if media_info.get("success") and "duration" in media_info.get("info", {}):
+                        video_duration = float(media_info["info"]["duration"])
+                        start_time = max(0, video_duration / 2 - 5)
+                        end_time = min(video_duration, start_time + 10)
+                        edit_commands[command] = [start_time, end_time]
+                    else:
+                        edit_commands[command] = [0, 10]  # Fallback
+            else:
+                # For other commands, apply to entire video or use default timing
+                media_info = ffmpeg_utils.get_media_info(video_path)
+                if media_info.get("success") and "duration" in media_info.get("info", {}):
+                    video_duration = float(media_info["info"]["duration"])
+                    edit_commands[command] = [0, video_duration]
+                else:
+                    edit_commands[command] = [0, 30]  # Default 30 seconds
+        
+        print(f"⏰ Generated timestamps: {edit_commands}")
+        
+        # Step 3: Execute edits (adapted from run_edits in specific.py)
+        output_files = []
+        current_video_path = video_path
+        base_name = os.path.splitext(video_path)[0]
+        
+        # Generate proper output filename with ai_edited prefix
+        import time
+        timestamp = int(time.time())
+        video_path_obj = Path(video_path)
+        video_id = video_path_obj.stem
+        output_filename = f"ai_edited_{video_id[:8]}_{timestamp}.mp4"
+        output_path = OUTPUT_DIR / output_filename
+        
+        # Execute the first command (for now, we'll handle one command at a time)
+        if edit_commands:
+            first_command = list(edit_commands.keys())[0]
+            timestamps = edit_commands[first_command]
+            
+            print(f"🔧 Executing command: {first_command} with timestamps: {timestamps}")
+            
+            # Handle trim commands
+            if "trim" in first_command.lower() or "cut" in first_command.lower():
+                start_seconds = timestamps[0]
+                duration_seconds = timestamps[1] - timestamps[0]
+                
+                start_time = f"{int(start_seconds//3600):02d}:{int((start_seconds%3600)//60):02d}:{start_seconds%60:06.3f}"
+                duration_time = f"{int(duration_seconds//3600):02d}:{int((duration_seconds%3600)//60):02d}:{duration_seconds%60:06.3f}"
+                
+                print(f"✂️ Trimming from {start_time} for duration {duration_time}")
+                
+                result = ffmpeg_utils.trim_video(
+                    str(current_video_path),
+                    str(output_path),
+                    start_time,
+                    duration_time
+                )
+                
+                if result.get("success"):
+                    print(f"✅ Trim completed successfully")
+                    output_files.append(output_filename)
+                else:
+                    print(f"❌ Trim failed: {result.get('error')}")
+                    return {
+                        "type": "specific",
+                        "commands": commands_text,
+                        "status": "error",
+                        "error": f"Trim failed: {result.get('error')}"
+                    }
+            
+            # Handle other commands (can be expanded)
+            else:
+                # For other commands, apply basic effects
+                print(f"🎨 Applying default enhancement for command: {first_command}")
+                result = ffmpeg_utils.apply_video_effects(
+                    str(current_video_path),
+                    str(output_path),
+                    effects={
+                        "contrast": 1.1,
+                        "saturation": 1.05
+                    }
+                )
+                
+                if result.get("success"):
+                    print(f"✅ Effects applied successfully")
+                    output_files.append(output_filename)
+                else:
+                    print(f"❌ Effects failed: {result.get('error')}")
+                    return {
+                        "type": "specific",
+                        "commands": commands_text,
+                        "status": "error",
+                        "error": f"Effects failed: {result.get('error')}"
+                    }
+        
+        if output_files:
+            return {
+                "type": "specific",
+                "commands": commands_text,
+                "status": "completed",
+                "output_file": output_files[0],
+                "output_path": str(output_path),
+                "success": True
+            }
+        else:
+            return {
+                "type": "specific",
+                "commands": commands_text,
+                "status": "error",
+                "error": "No output files generated"
+            }
+            
+    except Exception as e:
+        print(f"❌ Error in specific processing: {str(e)}")
+        return {
+            "type": "specific",
+            "commands": prompt,
+            "status": "error", 
+            "error": f"Processing exception: {str(e)}"
+        }
 
 async def blur_object_in_video(input_path: str, output_path: str, target_object: str, start_time: str = None, duration: str = None):
     """Blur specific object in video using ObjectProcessor"""

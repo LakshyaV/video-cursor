@@ -21,7 +21,7 @@ def intent_extraction():
     if not api_key:
         print("Error: COHERE_API_KEY not found in .env file.")
         return
-    co = cohere.ClientV2(api_key)
+    co = cohere.Client(api_key)
     user_input = input("Describe your video edit request: ")
     prompt = (
     "Extract the specific video edit commands from the following user request. "
@@ -36,8 +36,8 @@ def intent_extraction():
     "brightness, contrast, artistic filters, sound effects (boom, gunshot, explosion, whoosh), splice."
     )
     response = co.chat(
-        model="command-a-03-2025",
-        messages=[{"role": "user", "content": prompt}]
+        model="command-r-plus",
+        message=prompt
     )
     if hasattr(response, 'text'):
         response = response.text.strip()

@@ -29,7 +29,25 @@ class FFmpegUtils:
         try:
             subprocess.run([self.ffmpeg_path, '-version'], capture_output=True, check=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
-            raise RuntimeError(f"FFmpeg not found at {self.ffmpeg_path}. Please install FFmpeg or provide correct path.")
+            # Try to find FFmpeg in common Windows locations
+            common_paths = [
+                "ffmpeg",  # In PATH
+                "C:\\ffmpeg\\bin\\ffmpeg.exe",
+                "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
+                "C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe",
+                "C:\\tools\\ffmpeg\\bin\\ffmpeg.exe"
+            ]
+            
+            for path in common_paths:
+                try:
+                    subprocess.run([path, '-version'], capture_output=True, check=True)
+                    self.ffmpeg_path = path
+                    print(f"Found FFmpeg at: {path}")
+                    return
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    continue
+            
+            raise RuntimeError(f"FFmpeg not found. Please install FFmpeg or add it to your PATH. Tried paths: {common_paths}")
     
     def _run_command(self, command, description="FFmpeg operation"):
         """Run FFmpeg command and return result."""
