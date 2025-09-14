@@ -143,6 +143,76 @@ class TwelveLabsRequest(BaseModel):
     query: str
     search_type: Optional[str] = "visual"  # "visual", "audio", or "both"
 
+# -------------------------------
+# Helper parsing utilities
+# -------------------------------
+def _normalize_quotes(text: str) -> str:
+    if not text:
+        return ""
+    return (
+        text.replace("\u2019", "'")
+            .replace("\u2018", "'")
+            .replace("\u201c", '"')
+            .replace("\u201d", '"')
+    )
+
+def _extract_zoom_face_keyword(prompt: str) -> Optional[str]:
+    """Extract keyword after phrases like 'talking about|says|mentions ...'.
+    Robust to missing closing quotes and curly quotes. Returns None if not a
+    zoom-face-with-topic request.
+    """
+    if not prompt:
+        return None
+    p_norm = _normalize_quotes(prompt)
+    p_lower = p_norm.lower()
+    # Must at least look like a face zoom request with a speaking topic
+    if "zoom" not in p_lower or "face" not in p_lower:
+        return None
+    if not any(kw in p_lower for kw in [
+        "talking about", "talks about", "saying", "says", "mentioning", "mentions"
+    ]):
+        return None
+
+    # Regex with multiple groups for quoted/unquoted keywords (multi-word allowed)
+    m = re.search(
+        r"(?:talking about|talks about|saying|says|mentioning|mentions)\s+(?:\"([^\"]+)\"|'([^']+)'|([A-Za-z0-9\-]+(?:\s+[A-Za-z0-9\-]+)*))",
+        p_norm,
+        re.IGNORECASE,
+    )
+    if m:
+        for g in m.groups():
+            if g and g.strip():
+                return g.strip().strip("'\".,!?:;()")
+
+    # Fallback: take substring after the cue and strip leading quotes/punct
+    cues = ["talking about", "talks about", "saying", "says", "mentioning", "mentions"]
+    idx = -1
+    cue_len = 0
+    for cue in cues:
+        pos = p_lower.find(cue)
+        if pos != -1:
+            idx = pos
+            cue_len = len(cue)
+            break
+    if idx != -1:
+        tail = p_norm[idx + cue_len :].strip()
+        # Remove leading separators and quotes
+        while tail and tail[0] in " \t'\"“”‘’:.-":
+            tail = tail[1:]
+        # Keyword ends at first punctuation if present
+        end_pos = len(tail)
+        for ch in [".", ",", ";", ":", "!", "?", "\n"]:
+            cut = tail.find(ch)
+            if cut != -1:
+                end_pos = min(end_pos, cut)
+        candidate = tail[:end_pos].strip().strip("'\"“”‘’")
+        if candidate:
+            # Limit to a few words to avoid capturing long phrases
+            words = candidate.split()
+            candidate = " ".join(words[:5])
+            return candidate
+    return None
+
 # Root endpoint - serve the main application
 @app.get("/")
 async def read_root():
@@ -940,11 +1010,16 @@ async def download_output(filename: str, request: Request):
 # ====================
 
 async def get_input_file(file_id: str) -> Path:
-    """Get input file path and validate existence"""
+    """Get input file path from uploads or outputs and validate existence"""
+    # Try uploads first
     input_files = list(UPLOAD_DIR.glob(f"{file_id}.*"))
-    if not input_files:
-        raise HTTPException(status_code=404, detail="File not found")
-    return input_files[0]
+    if input_files:
+        return input_files[0]
+    # Then outputs (so we can chain edits on processed video)
+    output_files = list(OUTPUT_DIR.glob(f"{file_id}.*"))
+    if output_files:
+        return output_files[0]
+    raise HTTPException(status_code=404, detail="File not found")
 
 def calculate_duration(start_time: str, end_time: str) -> str:
     """Calculate duration between two timestamps"""
@@ -1572,6 +1647,93 @@ async def process_specific_request(prompt: str, video_path: str) -> Dict[str, An
                 "status": "error",
                 "error": f"Trim failed: {result.get('error', 'unknown error')}"
             }
+
+        # Fast-path: zoom into the person's face when he is talking about <keyword>
+        keyword = _extract_zoom_face_keyword(prompt)
+        if keyword:
+            keyword = keyword.strip()
+            if not keyword:
+                return {
+                    "type": "specific",
+                    "commands": prompt,
+                    "status": "error",
+                    "error": "Could not extract topic keyword"
+                }
+
+            print(f"🔎 Face zoom keyword parsed: '{keyword}'")
+            # Find audio segments containing the keyword
+            segments = _find_keyword_segments_in_audio(video_path, keyword)
+            print(f"🧩 Keyword segments found: {segments}")
+            if not segments:
+                return {
+                    "type": "specific",
+                    "commands": prompt,
+                    "status": "error",
+                    "error": f"Could not find any segment where '{keyword}' is spoken"
+                }
+
+            # Build output filename
+            timestamp = int(time.time())
+            video_path_obj = Path(video_path)
+            video_id = video_path_obj.stem
+            output_filename = f"ai_edited_{video_id[:8]}_{timestamp}.mp4"
+            output_path = OUTPUT_DIR / output_filename
+
+            # Apply face-zoom only during those segments by using ObjectProcessor with time-gated zoom
+            try:
+                try:
+                    from .object import ObjectProcessor
+                except ImportError:
+                    from object import ObjectProcessor
+                # Log where ObjectProcessor is coming from
+                try:
+                    import inspect
+                    print(f"🧩 Using ObjectProcessor from: {inspect.getsourcefile(ObjectProcessor)}")
+                except Exception:
+                    pass
+
+                processor = ObjectProcessor(
+                    input_video_path=str(video_path),
+                    detection_type="faces",
+                    verbose=True
+                )
+                # Slight padding around speaking windows
+                padded = [(max(0.0, s - 0.2), e + 0.2) for s, e in segments]
+                processor.enable_object_zoom(zoom_factor=3.5)
+                # Turn on on-frame debug overlay to verify boxes/zoom state
+                if hasattr(processor, 'enable_debug_overlay'):
+                    processor.enable_debug_overlay(False)
+                # Log which face backend we use
+                try:
+                    print(f"🧠 Face backend: {getattr(processor, 'face_backend', 'unknown')}")
+                except Exception:
+                    pass
+                if hasattr(processor, 'set_zoom_time_segments'):
+                    processor.set_zoom_time_segments(padded)
+                success = processor.process_and_save(str(output_path))
+                if success and output_path.exists():
+                    print(f"✅ Face zoom with time-gated segments complete. Output: {output_path}")
+                    return {
+                        "type": "specific",
+                        "commands": f"Zoom face AND when saying {keyword}",
+                        "status": "completed",
+                        "output_file": output_filename,
+                        "output_path": str(output_path),
+                        "success": True
+                    }
+                return {
+                    "type": "specific",
+                    "commands": prompt,
+                    "status": "error",
+                    "error": "Face zoom processing failed"
+                }
+            except Exception as e:
+                return {
+                    "type": "specific",
+                    "commands": prompt,
+                    "status": "error",
+                    "error": f"Exception during face zoom: {str(e)}"
+                }
         
         # Step 1: Extract commands from prompt (similar to intent_extraction in specific.py)
         extraction_prompt = f"""
@@ -1607,6 +1769,122 @@ async def process_specific_request(prompt: str, video_path: str) -> Dict[str, An
         
         print(f"📝 Parsed instances: {instances}")
         
+        # Direct zoom handling to ensure we use ObjectProcessor (faces/objects)
+        zoom_cmd_idx = None
+        zoom_location = ""
+        for idx, (cmd, loc) in enumerate(instances):
+            if any(t in cmd.lower() for t in ["zoom", "dynamic zoom", "zoom effect", "zoom into", "zoom on"]):
+                zoom_cmd_idx = idx
+                zoom_location = loc or ""
+                break
+        if zoom_cmd_idx is not None or "zoom" in prompt_lower:
+            try:
+                try:
+                    from .object import ObjectProcessor
+                except ImportError:
+                    from object import ObjectProcessor
+                # Log source of ObjectProcessor
+                try:
+                    import inspect
+                    print(f"🧩 Using ObjectProcessor from: {inspect.getsourcefile(ObjectProcessor)}")
+                except Exception:
+                    pass
+
+                # Determine detection mode
+                text_for_target = f"{zoom_location} {prompt_lower}"
+                is_face = any(k in text_for_target for k in ["face", "person", "people"]) 
+                detection_type = "faces" if is_face else "objects"
+
+                # Output filename
+                timestamp = int(time.time())
+                video_path_obj = Path(video_path)
+                video_id = video_path_obj.stem
+                output_filename = f"ai_edited_{video_id[:8]}_{timestamp}.mp4"
+                output_path = OUTPUT_DIR / output_filename
+
+                # Instantiate processor
+                processor = ObjectProcessor(
+                    input_video_path=str(video_path),
+                    detection_type=detection_type,
+                    verbose=True
+                )
+                # Attempt to gate to a parsed time window if present
+                duration = _get_video_duration_seconds(video_path)
+                rng = _parse_location_range(zoom_location, duration) or _parse_location_range(prompt, duration)
+                if rng and hasattr(processor, 'set_zoom_time_segments'):
+                    s, e = rng
+                    if e > s:
+                        print(f"⏱️ Applying zoom in range: {s:.2f}s→{e:.2f}s")
+                        processor.set_zoom_time_segments([(s, e)])
+                processor.enable_object_zoom(zoom_factor=3.5 if is_face else 2.0)
+                if hasattr(processor, 'enable_debug_overlay'):
+                    processor.enable_debug_overlay(False)
+                if detection_type == "faces":
+                    try:
+                        print(f"🧠 Face backend: {getattr(processor, 'face_backend', 'unknown')}")
+                    except Exception:
+                        pass
+                success = processor.process_and_save(str(output_path))
+                if success and output_path.exists():
+                    print(f"✅ ObjectProcessor zoom completed. Output: {output_path}")
+                    # Generate an H.264/AAC web-friendly MP4 if needed
+                    try:
+                        info = ffmpeg_utils.get_media_info(str(output_path))
+                        vcodec = None
+                        acodec = None
+                        if info.get('success'):
+                            fmt = info.get('info', {}).get('format', {})
+                            # Attempt to inspect stream codecs
+                            for s in info.get('info', {}).get('streams', []) or []:
+                                if s.get('codec_type') == 'video':
+                                    vcodec = s.get('codec_name')
+                                if s.get('codec_type') == 'audio':
+                                    acodec = s.get('codec_name')
+                        needs_convert = False
+                        if vcodec is None or vcodec.lower() not in { 'h264', 'avc1' }:
+                            needs_convert = True
+                        if acodec is None or acodec.lower() not in { 'aac', 'mp4a' }:
+                            needs_convert = True
+                        if needs_convert:
+                            conv_name = f"web_{output_filename}"
+                            conv_path = OUTPUT_DIR / conv_name
+                            print(f"🔄 Converting to web-friendly MP4: {conv_path}")
+                            conv_res = ffmpeg_utils.convert_video(str(output_path), str(conv_path), video_codec="libx264", audio_codec="aac", quality="23")
+                            if conv_res.get('success') and conv_path.exists():
+                                output_filename_converted = conv_name
+                            else:
+                                output_filename_converted = output_filename
+                        else:
+                            output_filename_converted = output_filename
+                    except Exception as _conv_err:
+                        print(f"⚠️ Convert check failed: {_conv_err}")
+                        output_filename_converted = output_filename
+
+                    final_name = output_filename_converted
+                    final_url = f"/api/outputs/{final_name}"
+                    # Final sanity: verify playability and log codecs
+                    try:
+                        finfo = ffmpeg_utils.get_media_info(str(OUTPUT_DIR / final_name))
+                        print(f"🧪 Final media info success={finfo.get('success')}")
+                        if finfo.get('success'):
+                            for s in finfo.get('info', {}).get('streams', []) or []:
+                                print(f"  • stream {s.get('index')}: {s.get('codec_type')} {s.get('codec_name')} {s.get('pix_fmt', '')}")
+                    except Exception as _e:
+                        print(f"⚠️ Final media info check failed: {_e}")
+                    return {
+                        "type": "specific",
+                        "commands": commands_text,
+                        "status": "completed",
+                        "output_file": final_name,
+                        "output_path": str(OUTPUT_DIR / final_name),
+                        "output_url": final_url,
+                        "success": True
+                    }
+                else:
+                    print("❌ ObjectProcessor zoom failed or output missing; falling back to effects if needed")
+            except Exception as e:
+                print(f"❌ Error during direct zoom handling: {e}")
+
         if not instances:
             print("❌ No valid commands extracted")
             return {
@@ -1834,6 +2112,12 @@ async def blur_object_in_video(input_path: str, output_path: str, target_object:
             from .object import ObjectProcessor
         except ImportError:
             from object import ObjectProcessor
+        # Log where ObjectProcessor is imported from
+        try:
+            import inspect
+            print(f"🧩 Using ObjectProcessor from: {inspect.getsourcefile(ObjectProcessor)}")
+        except Exception:
+            pass
         
         # Check if input file exists
         if not os.path.exists(input_path):
@@ -1908,6 +2192,9 @@ async def zoom_to_object_in_video(input_path: str, output_path: str, target_obje
         
         # Enable zoom to object
         processor.enable_object_zoom(zoom_factor=zoom_factor)
+        # Enable debug overlay for verification
+        if hasattr(processor, 'enable_debug_overlay'):
+            processor.enable_debug_overlay(False)
         
         # Process and save
         success = processor.process_and_save(output_path)

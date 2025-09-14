@@ -3,6 +3,7 @@ import numpy as np
 import os
 import glob
 import shutil
+import tempfile
 from collections import defaultdict
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -143,10 +144,15 @@ class ObjectProcessor:
             if MEDIAPIPE_AVAILABLE:
                 self.mp_face = mp.solutions.face_detection
                 self.face_detector = self.mp_face.FaceDetection(model_selection=0, min_detection_confidence=0.7)
+                self.face_backend = "mediapipe"
             elif MTCNN_AVAILABLE:
                 self.mtcnn_detector = mtcnn.MTCNN(min_face_size=20, scale_factor=0.709, steps_threshold=[0.6, 0.7, 0.7])
+                self.face_backend = "mtcnn"
             else:
                 self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+                self.face_backend = "haar"
+            # Allow lazy YOLO fallback in face mode
+            self.yolo_model = None
         else:
             if YOLO_AVAILABLE:
                 self.yolo_model = YOLO('yolov8n.pt')
@@ -175,6 +181,14 @@ class ObjectProcessor:
         
         self.object_tracker = ObjectTracker()
         
+        # Optional time-gated zoom segments: list of (start_s, end_s)
+        self.zoom_time_segments = None
+        self._zoom_active_current = True
+        self._frame_idx = 0
+        self._current_time_s = 0.0
+        self._debug_every_n_frames = max(1, int(self.fps // 2) or 1)
+        self.debug_draw = False
+
         self.detection_scale = 0.75
         self.frame_skip = 3
         self.batch_size = 8
@@ -186,6 +200,8 @@ class ObjectProcessor:
             if self.target_classes:
                 print(f"Target classes: {self.target_classes}")
             print(f"Processing with {self.frame_skip}x frame skip and {self.detection_scale}x detection scale")
+            if self.detection_type == "faces":
+                print(f"Face backend: {getattr(self, 'face_backend', 'unknown')}")
     
     def detect_objects_in_frame(self, frame, use_small_scale=True):
         if use_small_scale:
@@ -207,7 +223,7 @@ class ObjectProcessor:
                 return self._detect_objects_yolo(frame)
     
     def _detect_faces(self, frame):
-        if MEDIAPIPE_AVAILABLE:
+        if MEDIAPIPE_AVAILABLE and getattr(self, 'face_backend', '') == 'mediapipe':
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = self.face_detector.process(rgb_frame)
             
@@ -233,7 +249,7 @@ class ObjectProcessor:
                         'confidence': detection.score[0]
                     })
             return detections
-        elif MTCNN_AVAILABLE:
+        elif MTCNN_AVAILABLE and getattr(self, 'face_backend', '') == 'mtcnn':
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             result = self.mtcnn_detector.detect_faces(rgb_frame)
             
@@ -261,6 +277,8 @@ class ObjectProcessor:
                     'confidence': 1.0
                 })
             
+            if self.verbose and not detections:
+                print("[DBG] Haar cascade found 0 faces at this scale; consider enabling YOLO fallback")
             return detections
     
     def _detect_objects_yolo(self, frame):
@@ -635,13 +653,76 @@ class ObjectProcessor:
         if self.verbose:
             print(f"Object zoom enabled with factor: {zoom_factor}")
         return self
+
+    def enable_debug_overlay(self, draw=False):
+        self.debug_draw = bool(draw)
+        if draw:
+            # Increase temporal resolution for better visualization
+            self.frame_skip = 1
+        if self.verbose:
+            print(f"Debug overlay {'enabled' if draw else 'disabled'}; frame_skip={self.frame_skip}")
+        return self
     
-    def process_and_save(self, output_video_path):
+    def set_zoom_time_segments(self, segments):
+        """Enable zoom only during provided segments in seconds.
+        segments: Iterable of (start_seconds, end_seconds)
+        """
+        if not segments:
+            self.zoom_time_segments = None
+            return self
+        # Normalize and merge overlapping segments
+        normalized = []
+        for seg in segments:
+            try:
+                s, e = float(seg[0]), float(seg[1])
+            except Exception:
+                continue
+            if e <= s:
+                continue
+            normalized.append((max(0.0, s), e))
+        if not normalized:
+            self.zoom_time_segments = None
+            return self
+        normalized.sort()
+        merged = []
+        cur_s, cur_e = normalized[0]
+        for s, e in normalized[1:]:
+            if s <= cur_e + 1e-3:
+                cur_e = max(cur_e, e)
+            else:
+                merged.append((cur_s, cur_e))
+                cur_s, cur_e = s, e
+        merged.append((cur_s, cur_e))
+        self.zoom_time_segments = merged
+        if self.verbose:
+            print(f"Zoom will be active in {len(self.zoom_time_segments)} segment(s): {self.zoom_time_segments}")
+        return self
+
+    def _is_time_in_zoom_segments(self, t_seconds):
+        if self.zoom_time_segments is None:
+            return True
+        for s, e in self.zoom_time_segments:
+            if s <= t_seconds <= e:
+                return True
+        return False
+
+    def _is_zoom_active(self):
+        if self.zoom_time_segments is None:
+            return True
+        return bool(getattr(self, "_zoom_active_current", False))
+    
+    def process_and_save(self, output_video_path, web_safe=True):
         try:
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             
+            # Write to a temp file first; we'll convert to browser-safe H.264 if requested
+            temp_output_path = output_video_path
+            if web_safe:
+                temp_fd, temp_path = tempfile.mkstemp(suffix="_raw.mp4")
+                os.close(temp_fd)
+                temp_output_path = temp_path
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(output_video_path, fourcc, self.fps, (self.width, self.height))
+            out = cv2.VideoWriter(temp_output_path, fourcc, self.fps, (self.width, self.height))
             
             frame_count = 0
             last_detections = []
@@ -652,6 +733,12 @@ class ObjectProcessor:
                 if not ret:
                     break
                 
+                # Compute time-gated zoom activation for this frame
+                current_time_s = frame_count / max(1, self.fps)
+                self._zoom_active_current = self._is_time_in_zoom_segments(current_time_s)
+                self._frame_idx = frame_count
+                self._current_time_s = current_time_s
+
                 if frame_count % self.frame_skip == 0:
                     detections = self.detect_objects_in_frame(frame, use_small_scale=True)
                     detection_cache[frame_count] = detections
@@ -668,7 +755,74 @@ class ObjectProcessor:
                     print(f"Processing: {frame_count}/{self.total_frames} frames")
             
             out.release()
-            
+
+            # Optionally convert to web-friendly MP4 (H.264 + yuv420p + faststart) and reattach original audio if available
+            if web_safe:
+                try:
+                    try:
+                        from .utils import FFmpegUtils
+                    except ImportError:
+                        from utils import FFmpegUtils
+                    ffm = FFmpegUtils()
+                    if os.path.exists(output_video_path):
+                        try:
+                            os.remove(output_video_path)
+                        except Exception:
+                            pass
+                    # Inspect original audio presence
+                    has_audio = False
+                    try:
+                        info = ffm.get_media_info(self.input_video_path)
+                        if info.get("success"):
+                            for s in info.get("info", {}).get("streams", []) or []:
+                                if s.get("codec_type") == "audio":
+                                    has_audio = True
+                                    break
+                    except Exception:
+                        has_audio = False
+                    if self.verbose:
+                        print(f"Converting to browser-compatible MP4: {output_video_path} (preserve_audio={has_audio})")
+                    if has_audio and hasattr(ffm, "_run_command"):
+                        # Mux original audio with processed video
+                        cmd = [
+                            ffm.ffmpeg_path,
+                            '-i', temp_output_path,
+                            '-i', self.input_video_path,
+                            '-map', '0:v:0', '-map', '1:a:0',
+                            # Ensure even dimensions
+                            '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+                            '-c:v', 'libx264',
+                            '-pix_fmt', 'yuv420p',
+                            '-profile:v', 'high',
+                            '-level', '4.1',
+                            '-preset', 'medium',
+                            '-movflags', '+faststart',
+                            '-c:a', 'aac', '-b:a', '192k',
+                            '-shortest',
+                            '-y', output_video_path
+                        ]
+                        conv = ffm._run_command(cmd, "Mux Video+Audio (Web MP4)")
+                    else:
+                        conv = ffm.convert_video(temp_output_path, output_video_path, video_codec="libx264", audio_codec="aac", quality="23")
+                    if not conv.get("success"):
+                        if self.verbose:
+                            print(f"Conversion failed, leaving raw output. Error: {conv.get('error')}")
+                        # Fallback: move temp to final path
+                        shutil.move(temp_output_path, output_video_path)
+                    else:
+                        # Remove temp raw file
+                        try:
+                            os.remove(temp_output_path)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Conversion exception: {str(e)}. Using raw output.")
+                    try:
+                        shutil.move(temp_output_path, output_video_path)
+                    except Exception:
+                        pass
+
             if self.verbose:
                 print(f"Video processing completed! Output saved to: {output_video_path}")
             return True
@@ -682,10 +836,14 @@ class ObjectProcessor:
         detections = self.detect_objects_in_frame(frame, use_small_scale=False)
         
         if len(detections) == 0:
-            if self.enable_zoom:
+            if self.enable_zoom and self._is_zoom_active():
                 self._handle_no_objects()
                 if self.current_zoom > 1.0:
                     frame = self._apply_zoom(frame, self.prev_center_x, self.prev_center_y, self.current_zoom)
+                if self.verbose and (self._frame_idx % self._debug_every_n_frames == 0):
+                    print(f"[DBG] t={self._current_time_s:.2f}s no objects; zoom_active=True current_zoom={self.current_zoom:.2f}")
+            elif self.verbose and (self._frame_idx % self._debug_every_n_frames == 0):
+                print(f"[DBG] t={self._current_time_s:.2f}s no objects; zoom_active=False")
             return frame
         
         detections = sorted(detections, key=lambda d: d['bbox'][2] * d['bbox'][3], reverse=True)
@@ -697,7 +855,7 @@ class ObjectProcessor:
         if target_detection is None:
             target_detection = detections[0]
         
-        if self.enable_blur:
+        if self.enable_blur and self._is_zoom_active():
             self._apply_blur_to_objects(frame, detections, target_detection)
         
         if self.enable_zoom:
@@ -713,7 +871,25 @@ class ObjectProcessor:
                     frame = self._apply_zoom(frame, self.prev_center_x, self.prev_center_y, self.current_zoom)
             return frame
         
-        # Handle face detections (for face blur mode)
+        # Optionally draw all detections for debugging
+        if self.debug_draw:
+            for d in detections:
+                x, y, w, h = d['bbox']
+                x, y = max(0, x), max(0, y)
+                w = min(w, frame.shape[1] - x)
+                h = min(h, frame.shape[0] - y)
+                if w > 0 and h > 0:
+                    color = (0, 255, 0) if d['class_name'] in ('face', 'person') else (255, 200, 0)
+                    # Draw a very thin, subtle overlay; keep label minimal
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), color, 1)
+                    # Comment next two lines to fully hide labels
+                    # label = f"{d['class_name']}"
+                    # cv2.putText(frame, label, (x, max(0, y - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+            # Show zoom state
+            state_text = f"t={self._current_time_s:.2f}s zoom={'ON' if self._is_zoom_active() else 'OFF'} z={self.current_zoom:.2f}->{self.zoom_factor}"
+            cv2.putText(frame, state_text, (8, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (80, 220, 80), 1, cv2.LINE_AA)
+        
+        # Handle detections
         face_detections = [d for d in detections if d['class_name'] == 'face']
         people_detections = [d for d in detections if d['class_name'] == 'person']
         vehicle_detections = [d for d in detections if d['class_name'] in ['car', 'truck', 'bus', 'motorcycle']]
@@ -723,7 +899,7 @@ class ObjectProcessor:
             face_detections = sorted(face_detections, key=lambda d: d['confidence'] * (d['bbox'][2] * d['bbox'][3]), reverse=True)
             target_detection = face_detections[0]
             
-            if self.enable_blur:
+            if self.enable_blur and self._is_zoom_active():
                 blur_kernel_size = max(5, min(51, self.blur_strength))
                 if blur_kernel_size % 2 == 0:
                     blur_kernel_size += 1
@@ -740,15 +916,20 @@ class ObjectProcessor:
                         blurred_obj = cv2.GaussianBlur(obj_region, (blur_kernel_size, blur_kernel_size), 0)
                         frame[y:y+h, x:x+w] = blurred_obj
             
-            if self.enable_zoom:
+            if self.enable_zoom and self._is_zoom_active():
+                if self.verbose and (self._frame_idx % self._debug_every_n_frames == 0):
+                    x, y, w, h = target_detection['bbox']
+                    print(f"[DBG] t={self._current_time_s:.2f}s faces={len(face_detections)} bbox=({x},{y},{w},{h}) current_zoom={self.current_zoom:.2f}→{self.zoom_factor}")
                 frame = self._apply_zoom_to_object_smooth(frame, target_detection)
+            elif self.verbose and (self._frame_idx % self._debug_every_n_frames == 0):
+                print(f"[DBG] t={self._current_time_s:.2f}s faces={len(face_detections)} zoom_active=False current_zoom={self.current_zoom:.2f}")
         
         # Handle people detections (object detection mode)
         elif people_detections:
             people_detections = sorted(people_detections, key=lambda d: d['confidence'] * (d['bbox'][2] * d['bbox'][3]), reverse=True)
             target_detection = people_detections[0]
             
-            if self.enable_blur:
+            if self.enable_blur and self._is_zoom_active():
                 blur_kernel_size = max(5, min(51, self.blur_strength // 3))
                 if blur_kernel_size % 2 == 0:
                     blur_kernel_size += 1
@@ -764,12 +945,46 @@ class ObjectProcessor:
                         blurred_obj = cv2.GaussianBlur(obj_region, (blur_kernel_size, blur_kernel_size), 0)
                         frame[y:y+h, x:x+w] = blurred_obj
             
-            if self.enable_zoom:
+            if self.enable_zoom and self._is_zoom_active():
+                if self.verbose and (self._frame_idx % self._debug_every_n_frames == 0):
+                    x, y, w, h = target_detection['bbox']
+                    print(f"[DBG] t={self._current_time_s:.2f}s people={len(people_detections)} bbox=({x},{y},{w},{h}) current_zoom={self.current_zoom:.2f}→{self.zoom_factor}")
                 frame = self._apply_zoom_to_object_smooth(frame, target_detection)
+            elif self.verbose and (self._frame_idx % self._debug_every_n_frames == 0):
+                print(f"[DBG] t={self._current_time_s:.2f}s people={len(people_detections)} zoom_active=False current_zoom={self.current_zoom:.2f}")
         elif vehicle_detections and not people_detections:
             largest_vehicle = max(vehicle_detections, key=lambda d: d['bbox'][2] * d['bbox'][3])
-            if self.enable_zoom:
+            if self.enable_zoom and self._is_zoom_active():
+                if self.verbose and (self._frame_idx % self._debug_every_n_frames == 0):
+                    x, y, w, h = largest_vehicle['bbox']
+                    print(f"[DBG] t={self._current_time_s:.2f}s vehicle bbox=({x},{y},{w},{h}) current_zoom={self.current_zoom:.2f}→{self.zoom_factor}")
                 frame = self._apply_zoom_to_object_smooth(frame, largest_vehicle)
+            elif self.verbose and (self._frame_idx % self._debug_every_n_frames == 0):
+                print(f"[DBG] t={self._current_time_s:.2f}s vehicles={len(vehicle_detections)} zoom_active=False current_zoom={self.current_zoom:.2f}")
+        else:
+            # Fallbacks
+            if self.detection_type == "faces":
+                # If no explicit face/person detections by our fast path, try YOLO person
+                try:
+                    yolo_dets = self._detect_objects_yolo(frame)
+                except Exception:
+                    yolo_dets = []
+                persons = [d for d in yolo_dets if d['class_name'] == 'person']
+                target = max(persons, key=lambda d: d['bbox'][2] * d['bbox'][3]) if persons else (max(yolo_dets, key=lambda d: d['bbox'][2]*d['bbox'][3]) if yolo_dets else None)
+                if target and self.enable_zoom and self._is_zoom_active():
+                    if self.verbose and (self._frame_idx % self._debug_every_n_frames == 0):
+                        x, y, w, h = target['bbox']
+                        print(f"[DBG] t={self._current_time_s:.2f}s face-fallback target={target['class_name']} bbox=({x},{y},{w},{h}) current_zoom={self.current_zoom:.2f}→{self.zoom_factor}")
+                    frame = self._apply_zoom_to_object_smooth(frame, target)
+            else:
+                # Object mode: zoom to largest detected object if any
+                if detections:
+                    largest = max(detections, key=lambda d: d['bbox'][2] * d['bbox'][3])
+                    if self.enable_zoom and self._is_zoom_active():
+                        if self.verbose and (self._frame_idx % self._debug_every_n_frames == 0):
+                            x, y, w, h = largest['bbox']
+                            print(f"[DBG] t={self._current_time_s:.2f}s other target={largest['class_name']} bbox=({x},{y},{w},{h}) current_zoom={self.current_zoom:.2f}→{self.zoom_factor}")
+                        frame = self._apply_zoom_to_object_smooth(frame, largest)
         
         return frame
     
@@ -847,6 +1062,10 @@ class ObjectProcessor:
         x, y, w, h = target_detection['bbox']
         obj_center_x = x + w // 2
         obj_center_y = y + h // 2
+        # Clamp bbox to frame to avoid empty crops
+        x = max(0, x); y = max(0, y)
+        w = min(w, frame.shape[1] - x)
+        h = min(h, frame.shape[0] - y)
         
         smoothing_factor = 0.15
         
@@ -863,13 +1082,22 @@ class ObjectProcessor:
         return self._apply_zoom(frame, target_center_x, target_center_y, self.current_zoom)
     
     def _apply_zoom(self, frame, center_x, center_y, zoom_factor):
-        crop_width = int(self.width / zoom_factor)
-        crop_height = int(self.height / zoom_factor)
+        # Guard against extreme zoom and tiny crops
+        safe_zoom = max(1.01, float(zoom_factor))
+        crop_width = int(self.width / safe_zoom)
+        crop_height = int(self.height / safe_zoom)
+        crop_width = max(8, min(self.width, crop_width))
+        crop_height = max(8, min(self.height, crop_height))
         
         crop_x = max(0, min(center_x - crop_width // 2, self.width - crop_width))
         crop_y = max(0, min(center_y - crop_height // 2, self.height - crop_height))
         
         cropped_frame = frame[crop_y:crop_y + crop_height, crop_x:crop_x + crop_width]
+        if cropped_frame.size == 0:
+            # Fallback: return original frame if crop invalid
+            if self.verbose:
+                print(f"[DBG] Invalid crop at t={self._current_time_s:.2f}s -> returning original frame")
+            return frame
         return cv2.resize(cropped_frame, (self.width, self.height), interpolation=cv2.INTER_LINEAR)
     
     def __del__(self):

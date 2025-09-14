@@ -178,7 +178,13 @@ class FFmpegUtils:
         
         command = [
             self.ffmpeg_path, '-i', input_path,
+            # Ensure even dimensions for yuv420p compatibility
+            '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
             '-c:v', video_codec,
+            '-pix_fmt', 'yuv420p',
+            '-profile:v', 'high',
+            '-level', '4.1',
+            '-movflags', '+faststart',
             '-c:a', audio_codec,
             '-crf', quality,
             '-preset', 'medium',
