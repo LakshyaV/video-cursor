@@ -7,3 +7,9 @@ detected_*
 .env
 myenv/
 .python-version
+editor
+node_modules
+.DS_Store
+__pycache__/
+backend/htn
+backend/.env
