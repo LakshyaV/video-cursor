@@ -15,210 +15,79 @@
         <!-- Top Bar -->
         <div class="top-bar">
             <div class="top-left">
-                <div class="tab-group">
-                    <button class="tab active">Media Pool</button>
-                    <button class="tab">Effects</button>
-                    <button class="tab">Index</button>
-                    <button class="tab">Sound Library</button>
-                    <button class="tab">Keyframes</button>
-                </div>
+                <!-- Simple Upload Button -->
+                        <div class="toolbar">
+            <button id="uploadVideoBtn" class="upload-video-btn">
+                <i class="fas fa-upload"></i>
+                Upload Video
+            </button>
+            <input type="file" id="fileInput" accept="video/*" style="display: none;">
+        </div>
             </div>
             
             <div class="top-center">
-                <h1 class="project-title">The Ranch - Short Story</h1>
-                <span class="project-subtitle">Trailer Edit 1.0</span>
+                <h1 class="project-title">AI Video Editor</h1>
+                <span class="project-subtitle">Powered by AI</span>
             </div>
             
             <div class="top-right">
                 <div class="tab-group">
-                    <button class="tab">Quick Export</button>
-                    <button class="tab">Mixer</button>
-                    <button class="tab">Metadata</button>
-                    <button class="tab active">Inspector</button>
+                    <button class="tab" id="viewOriginalTab">
+                        <i class="fas fa-eye"></i>
+                        Original
+                    </button>
+                    <button class="tab" id="viewProcessedTab">
+                        <i class="fas fa-magic"></i>
+                        Processed
+                    </button>
+                    <button class="tab" id="downloadTab">
+                        <i class="fas fa-download"></i>
+                        Download
+                    </button>
+                    <button class="tab active">
+                        <i class="fas fa-comments"></i>
+                        AI Chat
+                    </button>
                 </div>
             </div>
         </div>
 
         <!-- Main Content Area -->
         <div class="main-content">
-            <!-- Left Panel -->
-            <div class="left-panel">
-                <!-- Media Pool Section -->
-                <div class="media-pool-section">
-                    <div class="folder-tree">
-                        <div class="folder-item active">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>Master / RANCH / A003</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>FOLES</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>GFX</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>ICELAND</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>OLD</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>RANCH</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>BTS</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>A001</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>A002</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>A003</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>A004</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>A005</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>A006</span>
-                        </div>
-                        <div class="folder-item">
-                            <i class="fas fa-chevron-right"></i>
-                            <span>A007</span>
-                        </div>
-                    </div>
-                    
-                    
-                </div>
-                
-                <!-- Toolbox Section -->
-                <div class="toolbox-section">
-                    <div class="toolbox-header">Toolbox</div>
-                    <div class="toolbox-content">
-                        <div class="toolbox-category expanded">
-                            <div class="category-header">
-                                <i class="fas fa-chevron-down"></i>
-                                <span>Video Transitions</span>
-                            </div>
-                            <div class="category-items">
-                                <div class="toolbox-item selected">Dissolve</div>
-                                <div class="toolbox-subcategory">
-                                    <div class="toolbox-item">Additive Dissolve</div>
-                                    <div class="toolbox-item">Bar Dissolve</div>
-                                    <div class="toolbox-item">Cross Dissolve</div>
-                                    <div class="toolbox-item">Dip To Color Dissolve</div>
-                                    <div class="toolbox-item">Non-Additive Dissolve</div>
-                                    <div class="toolbox-item">Smooth Cut</div>
+            <!-- Video and Chat Container -->
+            <div style="display: flex; flex: 1; gap: 1px;">
+                <!-- Video Viewer - Expanded to take most space -->
+                <div class="video-panel">
+                    <div class="video-viewer">
+                        <div class="video-frame">
+                            <!-- Integrated Toolbar Overlay -->
+                            <div class="video-toolbar">
+                                <div class="toolbar-group">
+                                    <button class="toolbar-btn" title="Zoom In">
+                                        <i class="fas fa-search-plus"></i>
+                                    </button>
+                                    <button class="toolbar-btn" title="Zoom Out">
+                                        <i class="fas fa-search-minus"></i>
+                                    </button>
+                                    <button class="toolbar-btn" title="Fit to Frame">
+                                        <i class="fas fa-expand-arrows-alt"></i>
+                                    </button>
                                 </div>
-                                <div class="toolbox-item">Iris</div>
-                                <div class="toolbox-subcategory">
-                                    <div class="toolbox-item">Arrow Iris</div>
-                                    <div class="toolbox-item">Cross Iris</div>
-                                    <div class="toolbox-item">Diamond Iris</div>
-                                    <div class="toolbox-item">Eye Iris</div>
+                                <div class="toolbar-group">
+                                    <button class="toolbar-btn" title="Transform">
+                                        <i class="fas fa-arrows-alt"></i>
+                                    </button>
+                                    <button class="toolbar-btn" title="Crop">
+                                        <i class="fas fa-crop"></i>
+                                    </button>
+                                    <button class="toolbar-btn" title="Rotate">
+                                        <i class="fas fa-redo"></i>
+                                    </button>
+                                </div>
+                                <div class="toolbar-group">
+                                    <span class="zoom-level">100%</span>
                                 </div>
                             </div>
-                        </div>
-                        <div class="toolbox-category">
-                            <div class="category-header">
-                                <i class="fas fa-chevron-right"></i>
-                                <span>Audio Transitions</span>
-                            </div>
-                        </div>
-                        <div class="toolbox-category">
-                            <div class="category-header">
-                                <i class="fas fa-chevron-right"></i>
-                                <span>Titles</span>
-                            </div>
-                        </div>
-                        <div class="toolbox-category">
-                            <div class="category-header">
-                                <i class="fas fa-chevron-right"></i>
-                                <span>Generators</span>
-                            </div>
-                        </div>
-                        <div class="toolbox-category">
-                            <div class="category-header">
-                                <i class="fas fa-chevron-right"></i>
-                                <span>Effects</span>
-                            </div>
-                        </div>
-                        <div class="toolbox-category">
-                            <div class="category-header">
-                                <i class="fas fa-chevron-right"></i>
-                                <span>Open FX</span>
-                            </div>
-                        </div>
-                        <div class="toolbox-category">
-                            <div class="category-header">
-                                <i class="fas fa-chevron-right"></i>
-                                <span>Audio FX</span>
-                            </div>
-                        </div>
-                        <div class="toolbox-category">
-                            <div class="category-header">
-                                <i class="fas fa-chevron-right"></i>
-                                <span>VST Effects</span>
-                            </div>
-                        </div>
-                        <div class="toolbox-category">
-                            <div class="category-header">
-                                <i class="fas fa-chevron-right"></i>
-                                <span>All Effects</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Center Panel - Video Viewer -->
-            <div class="center-panel">
-                <div class="video-viewer">
-                    <div class="video-frame">
-                        <!-- Integrated Toolbar Overlay -->
-                        <div class="video-toolbar">
-                            <div class="toolbar-group">
-                                <button class="toolbar-btn" title="Zoom In">
-                                    <i class="fas fa-search-plus"></i>
-                                </button>
-                                <button class="toolbar-btn" title="Zoom Out">
-                                    <i class="fas fa-search-minus"></i>
-                                </button>
-                                <button class="toolbar-btn" title="Fit to Frame">
-                                    <i class="fas fa-expand-arrows-alt"></i>
-                                </button>
-                            </div>
-                            <div class="toolbar-group">
-                                <button class="toolbar-btn" title="Transform">
-                                    <i class="fas fa-arrows-alt"></i>
-                                </button>
-                                <button class="toolbar-btn" title="Crop">
-                                    <i class="fas fa-crop"></i>
-                                </button>
-                                <button class="toolbar-btn" title="Rotate">
-                                    <i class="fas fa-redo"></i>
-                                </button>
-                            </div>
-                            <div class="toolbar-group">
-                                <span class="zoom-level">100%</span>
-                            </div>
-                        </div>
                         
                         <div class="video-content">
                             <div class="video-overlay">
@@ -226,223 +95,94 @@
                             </div>
                         </div>
                     </div>
-                    <!-- Slim Playback Controls -->
-                    <div class="playback-controls">
-                        <div class="playback-group">
-                            <button class="playback-btn" title="Rewind">
-                                <i class="fas fa-backward"></i>
-                            </button>
-                            <button class="playback-btn play-btn" title="Play">
-                                <i class="fas fa-play"></i>
-                            </button>
-                            <button class="playback-btn" title="Fast Forward">
-                                <i class="fas fa-forward"></i>
-                            </button>
-                            <button class="playback-btn" title="Stop">
-                                <i class="fas fa-stop"></i>
-                            </button>
-                        </div>
-                        <div class="playback-group">
-                            <button class="playback-btn" title="Previous Frame">
-                                <i class="fas fa-step-backward"></i>
-                            </button>
-                            <button class="playback-btn" title="Next Frame">
-                                <i class="fas fa-step-forward"></i>
-                            </button>
-                            <button class="playback-btn" title="Loop">
-                                <i class="fas fa-redo"></i>
-                            </button>
-                        </div>
-                        <div class="timecode-display">01:02:36:10</div>
-                    </div>
                 </div>
             </div>
 
-            <!-- Right Panel -->
-            <div class="right-panel" id="rightPanel">
-                <!-- Inspector Toggle Button -->
-                <button class="inspector-toggle" id="inspectorToggle">
-                    <i class="fas fa-chevron-left"></i>
-                </button>
-                
-                <!-- Inspector Section -->
-                <div class="inspector-section">
-                    <div class="inspector-tabs">
-                        <button class="inspector-tab active">Video</button>
-                        <button class="inspector-tab">Audio</button>
-                        <button class="inspector-tab">Effects</button>
-                        <button class="inspector-tab">Transition</button>
-                        <button class="inspector-tab">Image</button>
-                        <button class="inspector-tab">File</button>
+                <!-- Right Panel -->
+                <div class="right-panel" id="rightPanel">
+                    <!-- Chat Toggle Button -->
+                    <button class="chat-toggle" id="chatToggle">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    
+                    <!-- Chat Section -->
+                    <div class="chat-section">
+                        <div class="chat-header">
+                            <div class="chat-title">
+                                <i class="fas fa-comments"></i>
+                            <span>AI Assistant</span>
+                        </div>
+                        <div class="chat-actions">
+                            <button class="chat-action-btn" title="Clear Chat">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                            <button class="chat-action-btn" title="Settings">
+                                <i class="fas fa-cog"></i>
+                            </button>
+                        </div>
                     </div>
                     
-                    <div class="inspector-content">
-                        <div class="property-group">
-                            <div class="property-header">
-                                <span>Transform</span>
-                                <i class="fas fa-chevron-down"></i>
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="welcome-message">
+                            <div class="message-avatar">
+                                <i class="fas fa-robot"></i>
                             </div>
-                            <div class="property-content">
-                                <div class="property-row">
-                                    <label>Zoom</label>
-                                    <div class="property-values">
-                                        <span>X: 1.000</span>
-                                        <span>Y: 1.000</span>
-                                    </div>
+                            <div class="message-content">
+                                <div class="message-text">
+                                    Welcome to your AI video editing assistant! 
+                                    <br><br>
+                                    <strong>🎬 Simple Workflow:</strong>
+                                    <br>1. Click "Upload Video" button above
+                                    <br>2. The video will auto-load in the viewer
+                                    <br>3. Tell me how you want to edit it!
+                                    <br><br>
+                                    <strong>✨ Try commands like:</strong>
+                                    <br>• "Speed up the video"
+                                    <br>• "Make it brighter" 
+                                    <br>• "Crop the video"
+                                    <br>• "Add blur effect"
+                                    <br><br>
+                                    Upload your video to get started! 🚀
                                 </div>
-                                <div class="property-row">
-                                    <label>Position</label>
-                                    <div class="property-values">
-                                        <span>X: 0.000</span>
-                                        <span>Y: 0.000</span>
-                                    </div>
-                                </div>
-                                <div class="property-row">
-                                    <label>Rotation Angle</label>
-                                    <span>0.000</span>
-                                </div>
-                                <div class="property-row">
-                                    <label>Anchor Point</label>
-                                    <div class="property-values">
-                                        <span>X: 0.500</span>
-                                        <span>Y: 0.500</span>
-                                    </div>
-                                </div>
-                                <div class="property-row">
-                                    <label>Pitch</label>
-                                    <span>0.000</span>
-                                </div>
-                                <div class="property-row">
-                                    <label>Yaw</label>
-                                    <span>0.000</span>
-                                </div>
-                                <div class="property-row">
-                                    <label>Roll</label>
-                                    <span>0.000</span>
-                                </div>
-                                <div class="property-buttons">
-                                    <button class="property-btn">Flip</button>
-                                    <button class="property-btn">Reset</button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="property-group">
-                            <div class="property-header">
-                                <span>Smart Reframe</span>
-                                <div class="toggle-switch">
-                                    <input type="checkbox" id="smart-reframe">
-                                    <label for="smart-reframe"></label>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="property-group">
-                            <div class="property-header">
-                                <span>Cropping</span>
-                                <div class="toggle-switch">
-                                    <input type="checkbox" id="cropping">
-                                    <label for="cropping"></label>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="property-group">
-                            <div class="property-header">
-                                <span>Dynamic Zoom</span>
-                                <div class="toggle-switch">
-                                    <input type="checkbox" id="dynamic-zoom">
-                                    <label for="dynamic-zoom"></label>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="property-group">
-                            <div class="property-header">
-                                <span>Composite</span>
-                                <i class="fas fa-chevron-down"></i>
-                            </div>
-                            <div class="property-content">
-                                <div class="property-row">
-                                    <label>Composite Mode</label>
-                                    <span>Normal</span>
-                                </div>
-                                <div class="property-row">
-                                    <label>Opacity</label>
-                                    <span>100.00</span>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="property-group">
-                            <div class="property-header">
-                                <span>Speed Change</span>
-                                <div class="toggle-switch">
-                                    <input type="checkbox" id="speed-change">
-                                    <label for="speed-change"></label>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="property-group">
-                            <div class="property-header">
-                                <span>Stabilization</span>
-                                <div class="toggle-switch">
-                                    <input type="checkbox" id="stabilization">
-                                    <label for="stabilization"></label>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="property-group">
-                            <div class="property-header">
-                                <span>Lens Correction</span>
-                                <div class="toggle-switch">
-                                    <input type="checkbox" id="lens-correction">
-                                    <label for="lens-correction"></label>
-                                </div>
+                                <div class="message-time">Now</div>
                             </div>
                         </div>
                     </div>
-                </div>
-                
-                <!-- Mixer Section -->
-                <div class="mixer-section">
-                    <div class="mixer-header">Mixer</div>
-                    <div class="mixer-channels">
-                        <div class="mixer-channel">
-                            <div class="channel-info">
-                                <div class="channel-label">A1</div>
-                                <div class="channel-name">VO</div>
-                            </div>
-                            <div class="volume-control">
-                                <input type="range" min="0" max="100" value="75" class="slider" id="volA1">
-                                <span class="volume-value">75%</span>
-                            </div>
+                    
+                    <div class="chat-input-container">
+                        <div class="chat-input-wrapper">
+                            <textarea 
+                                id="chatInput" 
+                                class="chat-input" 
+                                placeholder="Try: 'Make the video brighter' or 'Trim the first 10 seconds'..."
+                                rows="1"
+                            ></textarea>
+                            <button class="send-button" id="sendButton">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
                         </div>
-                        <div class="mixer-channel">
-                            <div class="channel-info">
-                                <div class="channel-label">A2</div>
-                                <div class="channel-name">SOUNDTRACK 1</div>
-                            </div>
-                            <div class="volume-control">
-                                <input type="range" min="0" max="100" value="60" class="slider" id="volA2">
-                                <span class="volume-value">60%</span>
-                            </div>
-                        </div>
-                        <div class="mixer-channel">
-                            <div class="channel-info">
-                                <div class="channel-label">Bus1</div>
-                                <div class="channel-name">SHOTRICK</div>
-                            </div>
-                            <div class="volume-control">
-                                <input type="range" min="0" max="100" value="50" class="slider" id="volBus1">
-                                <span class="volume-value">50%</span>
-                            </div>
+                        <div class="quick-actions">
+                            <button class="quick-action-btn" data-action="help-brightness">
+                                <i class="fas fa-sun"></i>
+                                Brighten
+                            </button>
+                            <button class="quick-action-btn" data-action="help-trim">
+                                <i class="fas fa-cut"></i>
+                                Trim
+                            </button>
+                            <button class="quick-action-btn" data-action="help-speed">
+                                <i class="fas fa-forward"></i>
+                                Speed
+                            </button>
+                            <button class="quick-action-btn" data-action="help-crop">
+                                <i class="fas fa-crop"></i>
+                                Crop
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
+            </div> <!-- Close video and chat container -->
         </div>
 
         <!-- Timeline -->
@@ -684,6 +424,66 @@
         <div class="preset-item" data-preset="minimal">
             <i class="fas fa-compress"></i>
             <span>Minimal</span>
+        </div>
+    </div>
+
+    <!-- Export Modal -->
+    <div class="modal-overlay" id="exportModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>
+                    <i class="fas fa-download"></i>
+                    Export Video
+                </h3>
+                <button class="modal-close" id="closeExportModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="export-section">
+                    <label>Select Video to Export:</label>
+                    <select id="videoSelect" class="form-select">
+                        <option value="">Choose a video...</option>
+                    </select>
+                </div>
+                
+                <div class="export-section">
+                    <label>Format:</label>
+                    <select id="formatSelect" class="form-select">
+                        <option value="mp4">MP4 (H.264)</option>
+                        <option value="mov">MOV (QuickTime)</option>
+                        <option value="avi">AVI</option>
+                        <option value="webm">WebM</option>
+                    </select>
+                </div>
+                
+                <div class="export-section">
+                    <label>Quality:</label>
+                    <select id="qualitySelect" class="form-select">
+                        <option value="high">High Quality (1080p)</option>
+                        <option value="medium">Medium Quality (720p)</option>
+                        <option value="low">Low Quality (480p)</option>
+                        <option value="original">Original Quality</option>
+                    </select>
+                </div>
+                
+                <div class="export-progress" id="exportProgress" style="display: none;">
+                    <div class="progress-label">Exporting...</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="progress-percentage" id="progressPercentage">0%</div>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelExport">Cancel</button>
+                <button class="btn btn-primary" id="startExport">
+                    <i class="fas fa-download"></i>
+                    Export Video
+                </button>
+            </div>
         </div>
     </div>
 

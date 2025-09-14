@@ -467,7 +467,69 @@ class FFmpegUtils:
     
     def apply_video_effects(self, input_path, output_path, blur=0, brightness=0, contrast=1, 
                            saturation=1, artistic_filter="none", zoom=False, rotation=0, 
-                           horizontal_flip=False, vertical_flip=False):
+                           horizontal_flip=False, vertical_flip=False, effects=None):
+        """
+        Apply video effects and filters.
+        
+        Args:
+            input_path (str): Path to input video file
+            output_path (str): Path to output video file
+            blur (float): Blur strength (0-10)
+            brightness (float): Brightness adjustment (-1 to 1)
+            contrast (float): Contrast adjustment (0-2)
+            saturation (float): Saturation adjustment (0-2)
+            artistic_filter (str): Artistic filter ("none", "black & white", "sepia", "vintage", "negative", "emboss", "edge detection")
+            zoom (bool): Apply zoom effect
+            rotation (float): Rotation in degrees
+            horizontal_flip (bool): Horizontal flip
+            vertical_flip (bool): Vertical flip
+            effects (dict): Additional effects like {"speed": 2.0, "audio_tempo": 2.0}
+            
+        Returns:
+            dict: Result with success status and output/error messages
+        """
+        if not os.path.exists(input_path):
+            return {"success": False, "error": f"Input file not found: {input_path}"}
+        
+        filters = []
+        audio_filters = []
+        
+        # Handle speed effects first (requires special handling)
+        if effects and "speed" in effects:
+            speed = effects["speed"]
+            # Video speed: setpts filter
+            filters.append(f"setpts={1/speed}*PTS")
+            # Audio speed: atempo filter (limited to 0.5-2.0 range)
+            if "audio_tempo" in effects:
+                tempo = effects["audio_tempo"]
+                if 0.5 <= tempo <= 2.0:
+                    audio_filters.append(f"atempo={tempo}")
+                else:
+                    # For extreme speeds, chain multiple atempo filters
+                    current_tempo = tempo
+                    while current_tempo > 2.0:
+                        audio_filters.append("atempo=2.0")
+                        current_tempo /= 2.0
+                    while current_tempo < 0.5:
+                        audio_filters.append("atempo=0.5")
+                        current_tempo *= 2.0
+                    if current_tempo != 1.0:
+                        audio_filters.append(f"atempo={current_tempo}")
+        
+        # Basic effects
+        if blur > 0:
+            filters.append(f"gblur=sigma={blur}")
+        
+        # Handle additional effects from effects dict
+        if effects:
+            if "blur" in effects:
+                filters.append(f"gblur=sigma={effects['blur']}")
+            if "brightness" in effects:
+                brightness = effects["brightness"]
+            if "contrast" in effects:
+                contrast = effects["contrast"]
+            if "saturation" in effects:
+                saturation = effects["saturation"]
         """
         Apply video effects and filters.
         
@@ -541,7 +603,13 @@ class FFmpegUtils:
         if filters:
             command.extend(['-vf', ','.join(filters)])
         
-        command.extend(['-c:a', 'copy', '-y', output_path])
+        if audio_filters:
+            command.extend(['-af', ','.join(audio_filters)])
+            command.extend(['-c:v', 'libx264'])  # Re-encode video when processing audio
+        else:
+            command.extend(['-c:a', 'copy'])  # Copy audio when no audio processing
+        
+        command.extend(['-y', output_path])
         
         return self._run_command(command, "Applying Video Effects")
     

@@ -47,6 +47,21 @@ if not public_dir.exists():
     raise RuntimeError(f"Public directory not found at {public_dir}. Please ensure the 'public' folder exists in the project root.")
 app.mount("/static", StaticFiles(directory=str(public_dir)), name="static")
 
+# Serve the main HTML file at root
+@app.get("/")
+async def serve_index():
+    """Serve the main HTML file"""
+    return FileResponse(str(public_dir / "index.html"))
+
+# Serve other static files directly
+@app.get("/{file_name}")
+async def serve_static_file(file_name: str):
+    """Serve static files like CSS, JS, images"""
+    file_path = public_dir / file_name
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(str(file_path))
+    raise HTTPException(status_code=404, detail="File not found")
+
 # Global variables for processing
 UPLOAD_DIR = Path("uploads")
 OUTPUT_DIR = Path("outputs")
@@ -430,6 +445,8 @@ async def ai_powered_edit(request: AIEditRequest):
     input_path = await get_input_file(request.video_id)
     
     try:
+        print(f"🎬 Processing AI edit request: {request.prompt} for file: {request.video_id}")
+        
         if request.edit_type == "vague":
             # Process vague request
             result = await process_vague_request(request.prompt, str(input_path))
@@ -437,9 +454,98 @@ async def ai_powered_edit(request: AIEditRequest):
             # Process specific request
             result = await process_specific_request(request.prompt, str(input_path))
         
+        print(f"✅ AI processing complete: {result}")
         return result
     except Exception as e:
+        print(f"❌ AI processing error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"AI processing failed: {str(e)}")
+
+@app.post("/api/ai/edit/stream")
+async def ai_powered_edit_stream(request: AIEditRequest):
+    """AI-powered video editing with streaming progress updates"""
+    if not cohere_client:
+        raise HTTPException(status_code=503, detail="AI service not available - please set COHERE_API_KEY")
+    
+    async def generate_stream():
+        try:
+            yield f"data: {json.dumps({'status': 'started', 'message': 'Starting AI analysis...'})}\n\n"
+            
+            input_path = await get_input_file(request.video_id)
+            yield f"data: {json.dumps({'status': 'processing', 'message': 'Video file located, analyzing request...'})}\n\n"
+            
+            if request.edit_type == "vague":
+                yield f"data: {json.dumps({'status': 'processing', 'message': 'Processing vague request with AI...'})}\n\n"
+                result = await process_vague_request(request.prompt, str(input_path))
+            else:
+                yield f"data: {json.dumps({'status': 'processing', 'message': 'Processing specific request...'})}\n\n"
+                result = await process_specific_request(request.prompt, str(input_path))
+            
+            yield f"data: {json.dumps({'status': 'completed', 'result': result})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'message': f'Error: {str(e)}'})}\n\n"
+    
+    return StreamingResponse(generate_stream(), media_type="text/event-stream")
+
+@app.get("/api/ai/edit/stream/{video_id}")
+async def ai_edit_stream_endpoint(video_id: str, prompt: str, edit_type: str = "vague"):
+    """Stream endpoint for AI video editing with real-time updates"""
+    if not cohere_client:
+        return StreamingResponse(
+            iter([f"data: {json.dumps({'status': 'error', 'message': 'AI service not available'})}\n\n"]),
+            media_type="text/event-stream"
+        )
+    
+    async def generate_stream():
+        try:
+            yield f"data: {json.dumps({'status': 'started', 'message': 'Initializing AI video editor...', 'progress': 10})}\n\n"
+            await asyncio.sleep(0.5)
+            
+            # Validate file exists
+            input_path = await get_input_file(video_id)
+            yield f"data: {json.dumps({'status': 'processing', 'message': f'Video file found: {input_path.name}', 'progress': 20})}\n\n"
+            await asyncio.sleep(0.5)
+            
+            # Analyze the prompt
+            yield f"data: {json.dumps({'status': 'processing', 'message': 'Analyzing your editing request...', 'progress': 30})}\n\n"
+            await asyncio.sleep(1)
+            
+            # Process with AI
+            if edit_type == "vague":
+                yield f"data: {json.dumps({'status': 'processing', 'message': 'AI is generating editing commands...', 'progress': 50})}\n\n"
+                result = await process_vague_request(prompt, str(input_path))
+            else:
+                yield f"data: {json.dumps({'status': 'processing', 'message': 'Processing specific editing commands...', 'progress': 50})}\n\n"
+                result = await process_specific_request(prompt, str(input_path))
+            
+            yield f"data: {json.dumps({'status': 'processing', 'message': 'AI analysis complete, preparing response...', 'progress': 80})}\n\n"
+            await asyncio.sleep(0.5)
+            
+            # Use the output filename that was actually created by the processing function
+            # Don't overwrite it with a new timestamp
+            if not result.get('output_file'):
+                # Fallback only if no output_file was set
+                timestamp = int(time.time())
+                output_filename = f"ai_edited_{video_id[:8]}_{timestamp}.mp4"
+                result['output_file'] = output_filename
+                result['output_path'] = f"outputs/{output_filename}"
+            
+            yield f"data: {json.dumps({'status': 'completed', 'message': 'Video editing analysis complete!', 'progress': 100, 'result': result})}\n\n"
+            
+        except Exception as e:
+            print(f"❌ Streaming error: {str(e)}")
+            yield f"data: {json.dumps({'status': 'error', 'message': f'Error: {str(e)}', 'progress': 0})}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 @app.post("/api/ai/analyze")
 async def analyze_prompt(prompt: str = Form(...)):
@@ -622,6 +728,56 @@ async def download_file(output_id: str):
         media_type='application/octet-stream'
     )
 
+class ExportRequest(BaseModel):
+    videoId: str
+    format: str = "mp4"
+    quality: str = "high"
+
+@app.post("/api/export")
+async def export_video(request: ExportRequest):
+    """Export video with specified format and quality"""
+    try:
+        # Get input file
+        input_files = list(UPLOAD_DIR.glob(f"{request.videoId}.*"))
+        if not input_files:
+            raise HTTPException(status_code=404, detail="Video not found")
+        
+        input_path = input_files[0]
+        output_id = str(uuid.uuid4())
+        output_path = OUTPUT_DIR / f"{output_id}.{request.format}"
+        
+        # Quality settings
+        quality_settings = {
+            "high": {"scale": "1920:1080", "bitrate": "5M"},
+            "medium": {"scale": "1280:720", "bitrate": "3M"},
+            "low": {"scale": "854:480", "bitrate": "1M"},
+            "original": {"scale": None, "bitrate": None}
+        }
+        
+        settings = quality_settings.get(request.quality, quality_settings["high"])
+        
+        # Use convert function for format conversion
+        result = ffmpeg_utils.convert_video(
+            str(input_path), 
+            str(output_path), 
+            request.format,
+            scale=settings["scale"],
+            bitrate=settings["bitrate"]
+        )
+        
+        if result["success"]:
+            # Return the file directly as download
+            return FileResponse(
+                path=str(output_path),
+                filename=f"exported_{input_path.stem}.{request.format}",
+                media_type='application/octet-stream'
+            )
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
 @app.get("/api/preview/{file_id}")
 async def preview_file(file_id: str):
     """Stream video preview"""
@@ -655,6 +811,29 @@ async def list_outputs():
                 "extension": file_info.get("extension", "")
             })
     return {"outputs": outputs}
+
+@app.get("/api/outputs/{filename}")
+async def download_output(filename: str):
+    """Download or stream a processed output file"""
+    output_path = OUTPUT_DIR / filename
+    
+    if not output_path.exists():
+        raise HTTPException(status_code=404, detail="Output file not found")
+    
+    def iterfile(file_path: str):
+        with open(file_path, mode="rb") as file_like:
+            yield from file_like
+    
+    media_type = "video/mp4" if output_path.suffix.lower() in ['.mp4', '.mov', '.avi'] else "application/octet-stream"
+    
+    return StreamingResponse(
+        iterfile(str(output_path)), 
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f"inline; filename={filename}",
+            "Cache-Control": "no-cache"
+        }
+    )
 
 # ====================
 # UTILITY FUNCTIONS
@@ -694,14 +873,16 @@ def extract_response_text(response) -> str:
     return str(response)
 
 async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
-    """Process vague editing request using AI"""
-    # Implementation would use the vague.py logic
+    """Process vague editing request using AI and execute the editing"""
+    print(f"🎬 Processing vague request: {prompt}")
+    
+    # First, get AI analysis
     analysis_prompt = f"""
     You are given a vague video edit request. Generate specific editing commands based on this request.
     Request: "{prompt}"
     
-    Available edit techniques: clip trimming, transitions, audio effects, dynamic zoom, 
-    object face blur, face/object tracking, subtitles, video effects.
+    Available edit techniques: speed up video, slow down video, clip trimming, transitions, 
+    audio effects, dynamic zoom, object face blur, face/object tracking, subtitles, video effects.
     
     Return editing commands in this format:
     <command> AND <where in video it should be applied>
@@ -713,7 +894,139 @@ async def process_vague_request(prompt: str, video_path: str) -> Dict[str, Any]:
     )
     
     commands = extract_response_text(response)
-    return {"type": "vague", "commands": commands, "status": "analyzed"}
+    print(f"🤖 AI Commands: {commands}")
+    
+    # Generate proper output filename with ai_edited prefix
+    import time
+    timestamp = int(time.time())
+    
+    # Extract video_id from video_path if possible
+    video_path_obj = Path(video_path)
+    video_id = video_path_obj.stem  # Get filename without extension
+    
+    # Create output filename with proper format
+    output_filename = f"ai_edited_{video_id[:8]}_{timestamp}.mp4"
+    output_path = OUTPUT_DIR / output_filename
+    
+    print(f"📝 Creating output file: {output_filename}")
+    
+    # Set input path
+    input_path = Path(video_path)
+    
+    try:
+        # Parse the user's intent and apply appropriate effects
+        prompt_lower = prompt.lower()
+        print(f"🔍 Parsing prompt: '{prompt_lower}'")
+        print(f"🔍 Contains 'blur': {'blur' in prompt_lower}")
+        print(f"🔍 Contains 'face': {'face' in prompt_lower}")
+        
+        if "speed up" in prompt_lower or "faster" in prompt_lower:
+            print("🚀 Applying speed up effect...")
+            # Speed up the video (e.g., 2x speed)
+            result = ffmpeg_utils.apply_video_effects(
+                str(input_path), 
+                str(output_path),
+                effects={
+                    "speed": 2.0,  # 2x speed
+                    "audio_tempo": 2.0  # Keep audio in sync
+                }
+            )
+        elif "slow down" in prompt_lower or "slower" in prompt_lower:
+            print("🐌 Applying slow down effect...")
+            # Slow down the video (e.g., 0.5x speed)
+            result = ffmpeg_utils.apply_video_effects(
+                str(input_path), 
+                str(output_path),
+                effects={
+                    "speed": 0.5,  # 0.5x speed
+                    "audio_tempo": 0.5  # Keep audio in sync
+                }
+            )
+        elif "blur" in prompt_lower:
+            print(f"🔍 Blur detected in prompt: '{prompt_lower}'")
+            # ALWAYS use ObjectProcessor for face blur - assume blur means face blur
+            print("👤 Face blur requested - using ObjectProcessor...")
+            print(f"📁 Input path: {input_path}")
+            print(f"📁 Output path: {output_path}")
+            
+            # Use ObjectProcessor for face blur
+            face_blur_result = await blur_object_in_video(
+                str(input_path),
+                str(output_path), 
+                "face"
+            )
+            
+            print(f"🎭 Face blur result: {face_blur_result}")
+            
+            # Convert blur result to expected format
+            if face_blur_result and face_blur_result.get("success"):
+                result = {"success": True, "message": "Face blur applied successfully"}
+            else:
+                result = {"success": False, "error": face_blur_result.get("message", "Face blur failed")}
+        elif "bright" in prompt_lower:
+            print("☀️ Applying brightness effect...")
+            result = ffmpeg_utils.apply_video_effects(
+                str(input_path), 
+                str(output_path),
+                effects={"brightness": 0.3}
+            )
+        elif "zoom" in prompt_lower:
+            # Check if it's face/person zoom
+            if "face" in prompt_lower or "person" in prompt_lower or "people" in prompt_lower:
+                print("🔍 Face zoom requested - using ObjectProcessor...")
+                result = await zoom_to_object_in_video(
+                    str(input_path),
+                    str(output_path), 
+                    "face",
+                    zoom_factor=2.0
+                )
+            else:
+                print("🔍 General zoom requested...")
+                # Apply general zoom effect
+                result = ffmpeg_utils.apply_video_effects(
+                    str(input_path), 
+                    str(output_path),
+                    effects={"zoom": 1.5}
+                )
+        else:
+            # Default: apply a subtle enhancement
+            print("✨ Applying default enhancement...")
+            result = ffmpeg_utils.apply_video_effects(
+                str(input_path), 
+                str(output_path),
+                effects={
+                    "contrast": 1.1,
+                    "saturation": 1.05
+                }
+            )
+        
+        if result and result.get("success"):
+            print(f"✅ Video processing successful: {output_path}")
+            return {
+                "type": "vague", 
+                "commands": commands, 
+                "status": "completed",
+                "output_file": output_filename,
+                "output_path": str(output_path),
+                "success": True
+            }
+        else:
+            print(f"❌ Video processing failed: {result}")
+            return {
+                "type": "vague", 
+                "commands": commands, 
+                "status": "error",
+                "error": result.get("error", "Unknown processing error") if result else "Processing failed"
+            }
+            
+    except Exception as e:
+        print(f"❌ Exception during video processing: {str(e)}")
+        return {
+            "type": "vague", 
+            "commands": commands, 
+            "status": "error",
+            "error": f"Processing exception: {str(e)}"
+        }
 
 async def process_specific_request(prompt: str, video_path: str) -> Dict[str, Any]:
     """Process specific editing request"""
@@ -737,14 +1050,102 @@ async def process_specific_request(prompt: str, video_path: str) -> Dict[str, An
     return {"type": "specific", "commands": commands, "status": "extracted"}
 
 async def blur_object_in_video(input_path: str, output_path: str, target_object: str, start_time: str = None, duration: str = None):
-    """Blur specific object in video"""
-    # Mock implementation - would use object detection and tracking
-    return {"success": True, "message": f"Blurred {target_object} in video"}
+    """Blur specific object in video using ObjectProcessor"""
+    try:
+        print(f"🎭 Starting face/object blur processing...")
+        print(f"  Input: {input_path}")
+        print(f"  Output: {output_path}")
+        print(f"  Target: {target_object}")
+        
+        # Import ObjectProcessor
+        from object import ObjectProcessor
+        
+        # Check if input file exists
+        if not os.path.exists(input_path):
+            print(f"❌ Input file not found: {input_path}")
+            return {"success": False, "message": f"Input file not found: {input_path}"}
+        
+        # Determine detection type based on target object
+        detection_type = "faces" if "face" in target_object.lower() else "objects"
+        
+        # Initialize ObjectProcessor with face detection for face blur
+        processor = ObjectProcessor(
+            input_video_path=input_path,
+            detection_type=detection_type,
+            verbose=True
+        )
+        
+        # Enable blur with VERY strong blur strength
+        processor.enable_object_blur(blur_strength=99)  # Maximum blur
+        
+        print(f"💥 STRONG blur enabled with strength 99!")
+        
+        # Process and save
+        success = processor.process_and_save(output_path)
+        
+        if success and os.path.exists(output_path):
+            print(f"✅ Face/object blur completed successfully!")
+            print(f"📁 Output file created: {output_path}")
+            file_size = os.path.getsize(output_path)
+            print(f"📊 File size: {file_size} bytes")
+            return {"success": True, "message": f"Successfully blurred {target_object} in video"}
+        else:
+            print(f"❌ Processing failed or output file not created")
+            print(f"❌ Expected output: {output_path}")
+            print(f"❌ File exists: {os.path.exists(output_path)}")
+            return {"success": False, "message": f"Failed to process {target_object} blur"}
+            
+    except Exception as e:
+        print(f"❌ Error in blur_object_in_video: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "message": f"Error: {str(e)}"}
 
 async def zoom_to_object_in_video(input_path: str, output_path: str, target_object: str, start_time: str = None, duration: str = None, zoom_factor: float = 2.0):
-    """Zoom to specific object in video"""
-    # Mock implementation - would use object detection and tracking
-    return {"success": True, "message": f"Zoomed to {target_object} in video"}
+    """Zoom to specific object in video using ObjectProcessor"""
+    try:
+        print(f"🔍 Starting object zoom processing...")
+        print(f"  Input: {input_path}")
+        print(f"  Output: {output_path}")
+        print(f"  Target: {target_object}")
+        print(f"  Zoom Factor: {zoom_factor}")
+        
+        # Import ObjectProcessor
+        from object import ObjectProcessor
+        
+        # Check if input file exists
+        if not os.path.exists(input_path):
+            print(f"❌ Input file not found: {input_path}")
+            return {"success": False, "message": f"Input file not found: {input_path}"}
+        
+        # Determine detection type based on target object
+        detection_type = "faces" if "face" in target_object.lower() else "objects"
+        
+        # Initialize ObjectProcessor
+        processor = ObjectProcessor(
+            input_video_path=input_path,
+            detection_type=detection_type,
+            verbose=True
+        )
+        
+        # Enable zoom to object
+        processor.enable_object_zoom(zoom_factor=zoom_factor)
+        
+        # Process and save
+        success = processor.process_and_save(output_path)
+        
+        if success and os.path.exists(output_path):
+            print(f"✅ Object zoom completed successfully!")
+            return {"success": True, "message": f"Successfully zoomed to {target_object} in video"}
+        else:
+            print(f"❌ Processing failed or output file not created")
+            return {"success": False, "message": f"Failed to process {target_object} zoom"}
+            
+    except Exception as e:
+        print(f"❌ Error in zoom_to_object_in_video: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "message": f"Error: {str(e)}"}
 
 # Serve any file from public directory directly (catch-all route - must be last)
 @app.get("/{file_path:path}")

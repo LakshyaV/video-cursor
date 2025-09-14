@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import os
 import glob
+import shutil
 from collections import defaultdict
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -712,10 +713,38 @@ class ObjectProcessor:
                     frame = self._apply_zoom(frame, self.prev_center_x, self.prev_center_y, self.current_zoom)
             return frame
         
+        # Handle face detections (for face blur mode)
+        face_detections = [d for d in detections if d['class_name'] == 'face']
         people_detections = [d for d in detections if d['class_name'] == 'person']
         vehicle_detections = [d for d in detections if d['class_name'] in ['car', 'truck', 'bus', 'motorcycle']]
         
-        if people_detections:
+        # If we have face detections (face detection mode), process them
+        if face_detections:
+            face_detections = sorted(face_detections, key=lambda d: d['confidence'] * (d['bbox'][2] * d['bbox'][3]), reverse=True)
+            target_detection = face_detections[0]
+            
+            if self.enable_blur:
+                blur_kernel_size = max(5, min(51, self.blur_strength))
+                if blur_kernel_size % 2 == 0:
+                    blur_kernel_size += 1
+                
+                # Blur ALL detected faces
+                for detection in face_detections:
+                    x, y, w, h = detection['bbox']
+                    x, y = max(0, x), max(0, y)
+                    w = min(w, frame.shape[1] - x)
+                    h = min(h, frame.shape[0] - y)
+                    
+                    if w > 0 and h > 0:
+                        obj_region = frame[y:y+h, x:x+w]
+                        blurred_obj = cv2.GaussianBlur(obj_region, (blur_kernel_size, blur_kernel_size), 0)
+                        frame[y:y+h, x:x+w] = blurred_obj
+            
+            if self.enable_zoom:
+                frame = self._apply_zoom_to_object_smooth(frame, target_detection)
+        
+        # Handle people detections (object detection mode)
+        elif people_detections:
             people_detections = sorted(people_detections, key=lambda d: d['confidence'] * (d['bbox'][2] * d['bbox'][3]), reverse=True)
             target_detection = people_detections[0]
             

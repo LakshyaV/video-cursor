@@ -7,17 +7,20 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeTimelineResize();
     initializeTimelineScrolling();
     initializeInspector();
-    initializeToolbox();
     initializeMicroInteractions();
     initializeKeyboardShortcuts();
     initializeWorkspaceOrganization();
     initializeVideoEditor();
+    initializeChat();
+    initializeUpload();
+    initializeExport();
 });
 
 // Backend API configuration
 const API_BASE = '/api';
 let currentVideoId = null;
 let uploadedFiles = new Map();
+let currentFileId = null;
 
 function initializeInterface() {
     // Set initial time display with smooth animation
@@ -414,68 +417,9 @@ function initializeInspector() {
     });
 }
 
-function initializeToolbox() {
-    // Enhanced toolbox interactions
-    const categoryHeaders = document.querySelectorAll('.category-header');
-    categoryHeaders.forEach(header => {
-        header.addEventListener('click', function() {
-            const category = this.parentElement;
-            const items = category.querySelector('.category-items');
-            
-            // Smooth expand/collapse animation
-            if (items) {
-                category.classList.toggle('expanded');
-                
-                if (category.classList.contains('expanded')) {
-                    items.style.maxHeight = '0';
-                    items.style.overflow = 'hidden';
-                    items.style.display = 'block';
-                    
-                    const height = items.scrollHeight;
-                    items.style.maxHeight = height + 'px';
-                    
-                    setTimeout(() => {
-                        items.style.maxHeight = 'none';
-                        items.style.overflow = 'visible';
-                    }, 300);
-                } else {
-                    items.style.maxHeight = items.scrollHeight + 'px';
-                    items.style.overflow = 'hidden';
-                    
-                    setTimeout(() => {
-                        items.style.maxHeight = '0';
-                    }, 10);
-                    
-                    setTimeout(() => {
-                        items.style.display = 'none';
-                    }, 300);
-                }
-            }
-        });
-    });
-    
-    // Enhanced toolbox items
-    const toolboxItems = document.querySelectorAll('.toolbox-item');
-    toolboxItems.forEach(item => {
-        item.addEventListener('click', function() {
-            // Smooth selection animation
-            this.style.transform = 'translateX(4px)';
-            setTimeout(() => {
-                this.style.transform = 'translateX(0)';
-            }, 150);
-            
-            // Remove selection from sibling items
-            const siblings = this.parentElement.querySelectorAll('.toolbox-item');
-            siblings.forEach(s => s.classList.remove('selected'));
-            // Add selection to clicked item
-            this.classList.add('selected');
-        });
-    });
-}
-
 function initializeMicroInteractions() {
     // Add subtle hover effects to all interactive elements
-    const interactiveElements = document.querySelectorAll('button, .tab, .media-item, .clip, .folder-item, .toolbox-item');
+    const interactiveElements = document.querySelectorAll('button, .tab, .media-item, .clip, .folder-item');
     
     interactiveElements.forEach(element => {
         element.addEventListener('mouseenter', function() {
@@ -512,21 +456,38 @@ function initializeMicroInteractions() {
 function initializeKeyboardShortcuts() {
     // Enhanced keyboard shortcuts with visual feedback
     document.addEventListener('keydown', function(e) {
+        // Check if user is typing in an input field
+        const activeElement = document.activeElement;
+        const isTyping = activeElement && (
+            activeElement.tagName === 'INPUT' || 
+            activeElement.tagName === 'TEXTAREA' || 
+            activeElement.contentEditable === 'true'
+        );
+        
         switch(e.code) {
             case 'Space':
-                e.preventDefault();
-                togglePlay();
-                showKeyboardFeedback('Play/Pause');
+                // Only prevent default and handle shortcut if not typing
+                if (!isTyping) {
+                    e.preventDefault();
+                    togglePlay();
+                    showKeyboardFeedback('Play/Pause');
+                }
                 break;
             case 'KeyK':
-                e.preventDefault();
-                togglePlay();
-                showKeyboardFeedback('Pause');
+                // Only prevent default and handle shortcut if not typing
+                if (!isTyping) {
+                    e.preventDefault();
+                    togglePlay();
+                    showKeyboardFeedback('Pause');
+                }
                 break;
             case 'KeyJ':
-                e.preventDefault();
-                stopPlayback();
-                showKeyboardFeedback('Stop');
+                // Only prevent default and handle shortcut if not typing
+                if (!isTyping) {
+                    e.preventDefault();
+                    stopPlayback();
+                    showKeyboardFeedback('Stop');
+                }
                 break;
             case 'Escape':
                 e.preventDefault();
@@ -1252,75 +1213,67 @@ function initializeTimelineScrolling() {
     console.log('Timeline scrolling initialized successfully');
 }
 
-// Video Editor Initialization
+// Video Editor Initialization - Simplified
 function initializeVideoEditor() {
-    setupFileUpload();
-    setupVideoControls();
-    setupEffectsPanel();
-    setupAudioPanel();
-    setupExportPanel();
-    loadExistingFiles();
-}
-
-// File Upload Setup
-function setupFileUpload() {
-    const dropZone = document.createElement('div');
-    dropZone.className = 'drop-zone';
-    dropZone.innerHTML = `
-        <div class="drop-zone-content">
-            <i class="fas fa-cloud-upload-alt"></i>
-            <h3>Drop video files here or click to browse</h3>
-            <p>Supports MP4, MOV, AVI, MKV</p>
-            <input type="file" id="file-input" accept="video/*,audio/*,.srt" multiple style="display: none;">
-            <button class="upload-btn">Browse Files</button>
-        </div>
-    `;
-    
-    const mediaPool = document.querySelector('.folder-tree');
-    if (mediaPool) {
-        mediaPool.appendChild(dropZone);
-    }
-    
-    const fileInput = document.getElementById('file-input');
-    const uploadBtn = dropZone.querySelector('.upload-btn');
-    
-    uploadBtn.addEventListener('click', () => fileInput.click());
-    
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('drag-over');
-    });
-    
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('drag-over');
-    });
-    
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('drag-over');
-        handleFiles(e.dataTransfer.files);
-    });
-    
-    fileInput.addEventListener('change', (e) => {
-        handleFiles(e.target.files);
-    });
-}
-
-// Handle File Upload
-async function handleFiles(files) {
-    for (const file of files) {
-        await uploadFile(file);
-    }
-    updateMediaPool();
-}
-
-async function uploadFile(file) {
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    showProgress(`Uploading ${file.name}...`);
+    console.log('🎬 Initializing simplified video editor...');
     
     try {
+        // Load any existing files and auto-select if only one
+        loadExistingFiles();
+        console.log('✅ File loading setup complete');
+    } catch (error) {
+        console.error('❌ Error in loadExistingFiles:', error);
+    }
+    
+    console.log('🎉 Simplified video editor initialization complete!');
+}
+
+// Initialize simplified upload with top bar button
+function initializeUpload() {
+    console.log('🔄 Initializing upload button...');
+    
+    const uploadBtn = document.getElementById('uploadVideoBtn');
+    const fileInput = document.getElementById('fileInput');
+    
+    if (!uploadBtn || !fileInput) {
+        console.error('❌ Upload elements not found');
+        return;
+    }
+    
+    // Click upload button to select file
+    uploadBtn.addEventListener('click', () => {
+        fileInput.click();
+    });
+    
+    // Handle file selection
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleSimplifiedUpload(e.target.files[0]);
+        }
+    });
+    
+    console.log('✅ Upload button initialized');
+}
+
+// Simplified upload that auto-selects the uploaded file
+async function handleSimplifiedUpload(file) {
+    console.log('🎬 Starting upload for:', file.name);
+    
+    const uploadBtn = document.getElementById('uploadVideoBtn');
+    const originalContent = uploadBtn.innerHTML;
+    
+    // Show uploading state
+    uploadBtn.className = 'upload-video-btn uploading';
+    uploadBtn.innerHTML = `
+        <i class="fas fa-spinner fa-spin"></i>
+        Uploading...
+    `;
+    uploadBtn.disabled = true;
+    
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        
         const response = await fetch(`${API_BASE}/upload`, {
             method: 'POST',
             body: formData
@@ -1329,20 +1282,77 @@ async function uploadFile(file) {
         if (!response.ok) throw new Error('Upload failed');
         
         const result = await response.json();
+        console.log('✅ Upload successful:', result);
+        
+        // Auto-select this file for editing
+        currentVideoId = result.file_id;
+        window.currentVideoId = result.file_id;
+        
+        // Store file info
         uploadedFiles.set(result.file_id, {
             ...result,
-            type: file.type.startsWith('video/') ? 'video' : 
-                  file.type.startsWith('audio/') ? 'audio' : 'subtitle'
+            type: file.type.startsWith('video/') ? 'video' : 'audio',
+            filename: file.name
         });
         
-        showSuccess(`${file.name} uploaded successfully`);
-        return result.file_id;
+        // Update video player immediately
+        await loadVideoInfo(result.file_id);
+        updateVideoPlayer(result.file_id);
+        
+        // Show success state
+        uploadBtn.className = 'upload-video-btn success';
+        uploadBtn.innerHTML = `
+            <i class="fas fa-check"></i>
+            ${file.name}
+        `;
+        
+        // Add message to chat
+        addMessage(`📁 Video "${file.name}" uploaded and ready! You can now ask me to edit it.`, 'assistant');
+        
+        console.log('🎉 File auto-selected for editing:', result.file_id);
+        
+        // Reset button after 3 seconds
+        setTimeout(() => {
+            uploadBtn.className = 'upload-video-btn';
+            uploadBtn.innerHTML = originalContent;
+            uploadBtn.disabled = false;
+        }, 3000);
+        
     } catch (error) {
-        showError(`Failed to upload ${file.name}: ${error.message}`);
+        console.error('❌ Upload failed:', error);
+        
+        // Show error state
+        uploadBtn.className = 'upload-video-btn error';
+        uploadBtn.innerHTML = `
+            <i class="fas fa-exclamation-circle"></i>
+            Upload Failed
+        `;
+        
+        // Reset after 3 seconds
+        setTimeout(() => {
+            uploadBtn.className = 'upload-video-btn';
+            uploadBtn.innerHTML = originalContent;
+            uploadBtn.disabled = false;
+        }, 3000);
+        
+        addMessage(`❌ Failed to upload "${file.name}". Please try again.`, 'assistant');
     }
 }
 
-// Load Existing Files
+// Simplified video info loading
+async function loadVideoInfo(fileId) {
+    try {
+        const response = await fetch(`${API_BASE}/info/${fileId}`);
+        const data = await response.json();
+        
+        console.log('📊 Video info loaded:', data.info);
+        // We don't need to update inspector panel since it's removed
+    } catch (error) {
+        console.error('Failed to load video info:', error);
+    }
+}
+
+// Simplified file operations - no media pool needed
 async function loadExistingFiles() {
     try {
         const response = await fetch(`${API_BASE}/files`);
@@ -1351,87 +1361,131 @@ async function loadExistingFiles() {
         for (const file of data.files) {
             uploadedFiles.set(file.file_id, file);
         }
-        updateMediaPool();
+        
+        console.log('📁 Loaded existing files:', uploadedFiles.size);
+        
+        // If there's only one file, auto-select it
+        if (uploadedFiles.size === 1) {
+            const firstFile = Array.from(uploadedFiles.values())[0];
+            currentVideoId = firstFile.file_id;
+            window.currentVideoId = firstFile.file_id;
+            updateVideoPlayer(firstFile.file_id);
+            console.log('🎬 Auto-selected single existing file:', firstFile.filename);
+        }
     } catch (error) {
         console.error('Failed to load files:', error);
     }
 }
 
-// Update Media Pool Display
-function updateMediaPool() {
-    const mediaPool = document.querySelector('.folder-tree');
-    const existingFiles = mediaPool.querySelectorAll('.media-file');
-    existingFiles.forEach(file => file.remove());
-    
-    uploadedFiles.forEach((file, fileId) => {
-        const fileElement = document.createElement('div');
-        fileElement.className = 'media-file';
-        fileElement.innerHTML = `
-            <div class="file-item" data-file-id="${fileId}">
-                <i class="fas ${getFileIcon(file.type)}"></i>
-                <span class="file-name">${file.filename}</span>
-                <div class="file-actions">
-                    <button class="btn-preview" title="Preview">
-                        <i class="fas fa-play"></i>
-                    </button>
-                    <button class="btn-delete" title="Delete">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
+function updateVideoPlayer(fileId) {
+    const videoContent = document.querySelector('.video-content');
+    if (videoContent) {
+        console.log(`🎬 Updating video player with original video: ${fileId}`);
+        
+        videoContent.innerHTML = `
+            <video 
+                id="mainVideoPlayer" 
+                controls 
+                style="width: 100%; height: 100%; object-fit: contain; background: #000; border: 2px solid #4a9eff;"
+                onloadstart="console.log('Original video loading started')"
+                oncanplay="console.log('Original video can play')"
+                onerror="console.error('Original video error:', this.error)"
+                autoplay
+            >
+                <source src="${API_BASE}/preview/${fileId}" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+            <div class="video-overlay" style="pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+                <div class="safe-area"></div>
             </div>
         `;
         
-        mediaPool.appendChild(fileElement);
+        // Update project title to show original video
+        const projectTitle = document.querySelector('.project-title');
+        if (projectTitle) {
+            projectTitle.textContent = 'Video Editor';
+        }
         
-        fileElement.querySelector('.btn-preview').addEventListener('click', () => previewFile(fileId));
-        fileElement.querySelector('.btn-delete').addEventListener('click', () => deleteFile(fileId));
-        fileElement.addEventListener('click', () => selectFile(fileId));
-    });
-}
-
-function getFileIcon(type) {
-    switch(type) {
-        case 'video': return 'fa-video';
-        case 'audio': return 'fa-music';
-        case 'subtitle': return 'fa-closed-captioning';
-        default: return 'fa-file';
+        console.log('Original video element created and inserted into video-content');
+    } else {
+        console.error('video-content element not found for original video!');
     }
 }
 
-// File Operations
-async function selectFile(fileId) {
-    currentVideoId = fileId;
-    document.querySelectorAll('.file-item').forEach(item => item.classList.remove('selected'));
-    document.querySelector(`[data-file-id="${fileId}"]`).classList.add('selected');
-    
-    const file = uploadedFiles.get(fileId);
-    if (file.type === 'video') {
-        await loadVideoInfo(fileId);
-        updateVideoPlayer(fileId);
-    }
-}
-
-async function loadVideoInfo(fileId) {
-    try {
-        const response = await fetch(`${API_BASE}/info/${fileId}`);
-        const data = await response.json();
+function updateVideoPlayerWithOutput(outputFile) {
+    const videoContent = document.querySelector('.video-content');
+    if (videoContent) {
+        console.log(`🎬 Updating video player with processed output: ${outputFile}`);
         
-        updateInspectorPanel(data.info);
-    } catch (error) {
-        console.error('Failed to load video info:', error);
-    }
-}
-
-function updateVideoPlayer(fileId) {
-    const videoFrame = document.querySelector('.video-frame');
-    if (videoFrame) {
-        videoFrame.innerHTML = `
-            <video controls class="video-player" src="${API_BASE}/preview/${fileId}">
+        // Store the processed filename globally
+        window.lastProcessedFilename = outputFile;
+        console.log(`💾 Stored processed filename: ${outputFile}`);
+        
+        videoContent.innerHTML = `
+            <video 
+                id="mainVideoPlayer" 
+                controls 
+                style="width: 100%; height: 100%; object-fit: contain; background: #000; border: 2px solid #28a745;"
+                onloadstart="console.log('Processed video loading started')"
+                oncanplay="console.log('Processed video can play')"
+                onerror="console.error('Processed video error:', this.error)"
+                autoplay
+            >
+                <source src="${API_BASE}/outputs/${outputFile}" type="video/mp4">
                 Your browser does not support the video tag.
             </video>
+            <div class="video-overlay" style="pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+                <div class="safe-area"></div>
+            </div>
         `;
+        
+        // Update project title to show processed video
+        const projectTitle = document.querySelector('.project-title');
+        if (projectTitle) {
+            projectTitle.textContent = 'Video Editor';
+        }
+        
+        console.log('Processed video element created and inserted into video-content');
+        
+        // Verify the video element was created
+        const videoElement = document.getElementById('mainVideoPlayer');
+        console.log('Processed video element in DOM:', videoElement);
+        
+        // Add a subtle animation to highlight the change
+        videoContent.style.border = '2px solid #28a745';
+        setTimeout(() => {
+            videoContent.style.border = '';
+        }, 3000);
+    } else {
+        console.error('video-content element not found for processed video!');
     }
 }
+
+// Global functions for video switching (called from chat buttons)
+window.viewOriginalVideo = function() {
+    if (window.currentVideoId) {
+        updateVideoPlayer(window.currentVideoId);
+        addMessage('🎬 Switched to original video', 'assistant');
+    } else {
+        addMessage('❌ No original video selected', 'assistant');
+    }
+};
+
+window.viewProcessedVideo = function(outputFile) {
+    updateVideoPlayerWithOutput(outputFile);
+    addMessage('🎬 Switched to processed video', 'assistant');
+};
+
+window.downloadProcessedVideo = function(outputFile) {
+    const downloadUrl = `${API_BASE}/outputs/${outputFile}`;
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = outputFile;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    addMessage('📥 Download started!', 'assistant');
+};
 
 async function previewFile(fileId) {
     window.open(`${API_BASE}/preview/${fileId}`, '_blank');
@@ -1447,8 +1501,8 @@ async function deleteFile(fileId) {
         
         if (response.ok) {
             uploadedFiles.delete(fileId);
-            updateMediaPool();
-            showSuccess('File deleted successfully');
+            console.log('✅ File deleted successfully');
+            // No need to update media pool in simplified version
         } else {
             throw new Error('Delete failed');
         }
@@ -1671,15 +1725,26 @@ function setupExportPanel() {
     
     addToInspector(exportSection);
     
-    document.getElementById('quality').addEventListener('input', function() {
-        document.getElementById('quality-value').textContent = this.value;
-    });
+    // Add event listener with null check
+    const qualitySlider = document.getElementById('quality');
+    const qualityValue = document.getElementById('quality-value');
+    
+    if (qualitySlider && qualityValue) {
+        qualitySlider.addEventListener('input', function() {
+            qualityValue.textContent = this.value;
+        });
+    } else {
+        console.warn('⚠️ Quality slider or value element not found in export panel');
+    }
 }
 
 function addToInspector(section) {
     const inspector = document.querySelector('.inspector-content');
     if (inspector) {
         inspector.appendChild(section);
+        console.log('✅ Added section to inspector:', section.className);
+    } else {
+        console.warn('⚠️ Inspector content area not found, cannot add section:', section.className);
     }
 }
 
@@ -2104,6 +2169,13 @@ function showNotification(notification) {
 
 function updateInspectorPanel(mediaInfo) {
     const inspector = document.querySelector('.inspector-content');
+    
+    // Check if inspector panel exists
+    if (!inspector) {
+        console.warn('⚠️ Inspector content area not found, cannot update media info');
+        return;
+    }
+    
     let infoSection = inspector.querySelector('.media-info-section');
     
     if (!infoSection) {
@@ -2170,4 +2242,901 @@ function formatBytes(bytes) {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Global message function for chat and other features
+function addMessage(text, sender, returnElement = false) {
+    console.log('💬 addMessage() called with:', { text: text.substring(0, 50) + '...', sender });
+    
+    const chatMessages = document.getElementById('chatMessages');
+    if (!chatMessages) {
+        console.error('❌ chatMessages element not found in addMessage');
+        return;
+    }
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${sender}`;
+    console.log('📝 Created message div with class:', messageDiv.className);
+    
+    const avatar = document.createElement('div');
+    avatar.className = 'message-avatar';
+    avatar.innerHTML = sender === 'user' ? '<i class="fas fa-user"></i>' : '<i class="fas fa-robot"></i>';
+    
+    const content = document.createElement('div');
+    content.className = 'message-content';
+    
+    const messageText = document.createElement('div');
+    messageText.className = 'message-text';
+    messageText.innerHTML = text;
+    
+    const timestamp = document.createElement('div');
+    timestamp.className = 'message-time';
+    timestamp.textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    
+    content.appendChild(messageText);
+    content.appendChild(timestamp);
+    messageDiv.appendChild(avatar);
+    messageDiv.appendChild(content);
+    
+    console.log('📝 Appending message to chat messages container');
+    chatMessages.appendChild(messageDiv);
+    
+    // Smooth scroll to bottom
+    console.log('📜 Scrolling to bottom');
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    // Entrance animation
+    messageDiv.style.opacity = '0';
+    messageDiv.style.transform = 'translateY(20px)';
+    setTimeout(() => {
+        messageDiv.style.transition = 'all 0.3s ease';
+        messageDiv.style.opacity = '1';
+        messageDiv.style.transform = 'translateY(0)';
+        console.log('✨ Message animation complete');
+    }, 50);
+    
+    console.log('✅ Message added successfully');
+    
+    // Return the message text element if requested (for updates)
+    if (returnElement) {
+        return messageText;
+    }
+}
+
+// Chat Functionality
+function initializeChat() {
+    console.log('🎬 Initializing chat system...');
+    
+    const chatInput = document.getElementById('chatInput');
+    const sendButton = document.getElementById('sendButton');
+    const chatMessages = document.getElementById('chatMessages');
+    const chatToggle = document.getElementById('chatToggle');
+    const rightPanel = document.getElementById('rightPanel');
+    const quickActionBtns = document.querySelectorAll('.quick-action-btn');
+    
+    // Debug: Check if all elements exist
+    console.log('📋 Chat elements found:');
+    console.log('  - chatInput:', !!chatInput, chatInput);
+    console.log('  - sendButton:', !!sendButton, sendButton);
+    console.log('  - chatMessages:', !!chatMessages, chatMessages);
+    console.log('  - chatToggle:', !!chatToggle, chatToggle);
+    console.log('  - rightPanel:', !!rightPanel, rightPanel);
+    console.log('  - quickActionBtns count:', quickActionBtns.length);
+    
+    if (!chatInput || !sendButton || !chatMessages) {
+        console.error('❌ Critical chat elements missing! Chat functionality will not work.');
+        return;
+    }
+    
+    console.log('✅ All critical chat elements found, setting up event listeners...');
+    
+    // Chat toggle functionality
+    if (chatToggle && rightPanel) {
+        chatToggle.addEventListener('click', function() {
+            console.log('🔄 Chat toggle clicked');
+            rightPanel.classList.toggle('collapsed');
+            console.log('📝 Right panel collapsed:', rightPanel.classList.contains('collapsed'));
+            
+            // Smooth animation
+            this.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.style.transform = 'scale(1)';
+            }, 150);
+        });
+        console.log('✅ Chat toggle event listener added');
+    } else {
+        console.warn('⚠️ Chat toggle or right panel not found');
+    }
+    
+    // Auto-resize textarea
+    chatInput.addEventListener('input', function() {
+        console.log('📝 Chat input changed:', this.value.length, 'characters');
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+        
+        // Enable/disable send button
+        const isDisabled = this.value.trim().length === 0;
+        sendButton.disabled = isDisabled;
+        console.log('🔘 Send button disabled:', isDisabled);
+    });
+    console.log('✅ Chat input event listener added');
+    
+    // Send message on Enter (but not Shift+Enter)
+    chatInput.addEventListener('keydown', function(e) {
+        console.log('⌨️ Key pressed in chat:', e.key, 'shiftKey:', e.shiftKey);
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            console.log('🚀 Enter pressed - sending message');
+            sendMessage();
+        }
+    });
+    console.log('✅ Chat keydown event listener added');
+    
+    // Send button click
+    sendButton.addEventListener('click', function(e) {
+        console.log('🖱️ Send button clicked');
+        e.preventDefault();
+        sendMessage();
+    });
+    console.log('✅ Send button event listener added');
+    
+    // Quick action buttons
+    quickActionBtns.forEach((btn, index) => {
+        console.log(`🔘 Setting up quick action button ${index + 1}:`, btn.dataset.action);
+        btn.addEventListener('click', function() {
+            const action = this.dataset.action;
+            console.log('🚀 Quick action clicked:', action);
+            handleQuickAction(action);
+            
+            // Button feedback
+            this.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.style.transform = 'scale(1)';
+            }, 150);
+        });
+    });
+    console.log(`✅ ${quickActionBtns.length} quick action buttons set up`);
+    
+    console.log('🎉 Chat initialization complete!');
+    
+    function sendMessage() {
+        console.log('📤 sendMessage() called');
+        
+        if (!chatInput || !chatMessages) {
+            console.error('❌ Critical elements missing in sendMessage');
+            return;
+        }
+        
+        const message = chatInput.value.trim();
+        console.log('📝 Message to send:', message);
+        console.log('📝 Message length:', message.length);
+        
+        if (!message) {
+            console.warn('⚠️ Empty message, not sending');
+            return;
+        }
+        
+        console.log('🔍 Checking for uploaded videos...');
+        console.log('📁 uploadedFiles.size:', uploadedFiles.size);
+        console.log('📁 uploadedFiles contents:', Array.from(uploadedFiles.keys()));
+        
+        // Check if there's an uploaded video
+        if (uploadedFiles.size === 0 && isVideoEditingRequest(message)) {
+            console.log('❌ No videos uploaded, showing error message');
+            addMessage(message, 'user');
+            setTimeout(() => {
+                addMessage('❌ Please upload a video first before I can edit it for you!', 'assistant');
+            }, 500);
+            
+            // Clear input
+            chatInput.value = '';
+            chatInput.style.height = 'auto';
+            sendButton.disabled = true;
+            console.log('✅ Error message sent, input cleared');
+            return;
+        }
+        
+        console.log('✅ Adding user message to chat');
+        // Add user message
+        addMessage(message, 'user');
+        
+        // Clear input
+        chatInput.value = '';
+        chatInput.style.height = 'auto';
+        sendButton.disabled = true;
+        console.log('✅ Input cleared');
+        
+        // Process the message
+        console.log('🔍 Checking if message is video editing request...');
+        const isEditingRequest = isVideoEditingRequest(message);
+        console.log('🎬 Is video editing request:', isEditingRequest);
+        
+        if (isEditingRequest) {
+            console.log('🎬 Processing video editing request');
+            processVideoEditingRequest(message);
+        } else {
+            console.log('💬 Processing regular AI response');
+            // Regular AI response
+            setTimeout(() => {
+                const response = generateAIResponse(message);
+                console.log('🤖 Generated AI response:', response);
+                addMessage(response, 'assistant');
+            }, 1000);
+        }
+    }
+    
+    function handleQuickAction(action) {
+        console.log('🚀 handleQuickAction called with:', action);
+        let message = '';
+        
+        switch(action) {
+            case 'help-brightness':
+                message = 'Make the video brighter';
+                break;
+            case 'help-trim':
+                message = 'Trim the first 10 seconds of the video';
+                break;
+            case 'help-speed':
+                message = 'Speed up the video by 2x';
+                break;
+            case 'help-crop':
+                message = 'Crop the video to remove black borders';
+                break;
+            default:
+                console.warn('⚠️ Unknown quick action:', action);
+        }
+        
+        console.log('📝 Quick action message:', message);
+        
+        if (message) {
+            chatInput.value = message;
+            chatInput.focus();
+            sendButton.disabled = false;
+            console.log('✅ Quick action message set in input');
+        }
+    }
+    
+    // Check if the message is a video editing request
+    function isVideoEditingRequest(message) {
+        console.log('🔍 Checking if message is video editing request:', message);
+        
+        const editingKeywords = [
+            'edit', 'trim', 'cut', 'crop', 'resize', 'rotate', 'flip', 'mirror',
+            'speed up', 'slow down', 'fast forward', 'slow motion',
+            'brightness', 'contrast', 'saturation', 'blur', 'sharpen',
+            'remove background', 'add text', 'add music', 'volume',
+            'fade in', 'fade out', 'transition', 'effect', 'filter',
+            'stabilize', 'denoise', 'color grade', 'enhance'
+        ];
+        
+        const lowerMessage = message.toLowerCase();
+        const foundKeywords = editingKeywords.filter(keyword => lowerMessage.includes(keyword));
+        
+        console.log('🔍 Found editing keywords:', foundKeywords);
+        const isEditing = foundKeywords.length > 0;
+        console.log('🎬 Is video editing request:', isEditing);
+        
+        return isEditing;
+    }
+    
+    // Process video editing requests
+    function processVideoEditingRequest(message) {
+        console.log('🎬 processVideoEditingRequest called with:', message);
+        
+        // Show processing message
+        setTimeout(() => {
+            console.log('🔄 Adding processing message');
+            addMessage('🔄 Processing your video editing request...', 'assistant');
+        }, 500);
+        
+        // Get the current video ID from global variable or uploaded files
+        let fileId = window.currentVideoId;
+        
+        console.log('🔍 Debug: Starting file ID search...');
+        console.log('🔍 window.currentVideoId:', window.currentVideoId);
+        console.log('🔍 uploadedFiles.size:', uploadedFiles.size);
+        console.log('🔍 uploadedFiles keys:', Array.from(uploadedFiles.keys()));
+        
+        // If no global ID, try to get backend file ID from uploaded files
+        if (!fileId && uploadedFiles.size > 0) {
+            console.log('🔍 No global ID, searching uploadedFiles...');
+            
+            // Try to find any uploaded file with a valid ID
+            for (const [key, value] of uploadedFiles.entries()) {
+                console.log('🔍 Checking file:', key, value);
+                
+                if (value && value.backendFileId) {
+                    fileId = value.backendFileId;
+                    console.log('🔍 Found backendFileId:', fileId);
+                    break;
+                } else if (value && value.file && value.file.file_id) {
+                    fileId = value.file.file_id;
+                    console.log('🔍 Found file.file_id:', fileId);
+                    break;
+                } else if (typeof value === 'object' && value.file_id) {
+                    fileId = value.file_id;
+                    console.log('🔍 Found direct file_id:', fileId);
+                    break;
+                }
+            }
+            
+            // If we found a file ID, also set it globally
+            if (fileId) {
+                window.currentVideoId = fileId;
+                console.log('✅ Set window.currentVideoId to found ID:', fileId);
+            }
+        }
+        
+        console.log('📁 Selected file ID for editing:', fileId);
+        console.log('📁 Window.currentVideoId:', window.currentVideoId);
+        console.log('📁 Available files debug:', Array.from(uploadedFiles.values()).map(f => ({
+            hasFile: !!f.file,
+            hasBackendFileId: !!f.backendFileId,
+            fileStructure: f.file ? Object.keys(f.file) : 'no file property',
+            backendFileId: f.backendFileId
+        })));
+        
+        if (!fileId) {
+            console.warn('⚠️ No file ID found');
+            setTimeout(() => {
+                addMessage('❌ No video selected. Please select a video from the uploaded videos list.', 'assistant');
+            }, 1500);
+            return;
+        }
+        
+        console.log('🎬 Calling editVideoWithAPI with file ID:', fileId);
+        // Call API to edit video
+        setTimeout(() => {
+            editVideoWithAPI(fileId, message);
+        }, 2000);
+    }
+    
+    // AI video editing with streaming support and fallback
+    function editVideoWithAPI(fileId, instruction) {
+        console.log('🎬 editVideoWithAPI called with:', { fileId, instruction });
+        
+        // Show initial processing message
+        let lastMessageElement = addMessage('🔄 Initializing AI video editor...', 'assistant', true);
+        
+        // Try streaming first, with fallback to regular API
+        const encodedPrompt = encodeURIComponent(instruction);
+        const streamUrl = `/api/ai/edit/stream/${fileId}?prompt=${encodedPrompt}&edit_type=vague`;
+        
+        console.log('📡 Attempting to connect to stream:', streamUrl);
+        
+        let streamingWorked = false;
+        let connectionTimeout;
+        
+        try {
+            const eventSource = new EventSource(streamUrl);
+            
+            // Set up connection timeout
+            connectionTimeout = setTimeout(() => {
+                if (!streamingWorked) {
+                    console.log('⏰ Stream connection timeout, falling back to regular API');
+                    eventSource.close();
+                    fallbackToRegularAPI(fileId, instruction, lastMessageElement);
+                }
+            }, 10000); // 10 second timeout
+            
+            eventSource.onopen = function() {
+                console.log('✅ EventSource connection opened');
+                streamingWorked = true;
+                clearTimeout(connectionTimeout);
+            };
+            
+            eventSource.onmessage = function(event) {
+                streamingWorked = true;
+                clearTimeout(connectionTimeout);
+                
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('📡 Stream update:', data);
+                    
+                    if (data.status === 'started' || data.status === 'processing') {
+                        // Update the message with progress
+                        if (lastMessageElement) {
+                            let message = `🔄 ${data.message}`;
+                            if (data.progress) {
+                                message += ` (${data.progress}%)`;
+                            }
+                            lastMessageElement.innerHTML = message;
+                        }
+                    } else if (data.status === 'completed') {
+                        eventSource.close();
+                        handleVideoProcessingComplete(data, lastMessageElement);
+                    } else if (data.status === 'error') {
+                        eventSource.close();
+                        handleVideoProcessingError(data, lastMessageElement);
+                    }
+                    
+                } catch (error) {
+                    console.error('❌ Error parsing stream data:', error);
+                    eventSource.close();
+                    fallbackToRegularAPI(fileId, instruction, lastMessageElement);
+                }
+            };
+            
+            eventSource.onerror = function(event) {
+                console.error('❌ EventSource error:', event);
+                clearTimeout(connectionTimeout);
+                
+                if (!streamingWorked) {
+                    console.log('🔄 Stream failed immediately, falling back to regular API');
+                    eventSource.close();
+                    fallbackToRegularAPI(fileId, instruction, lastMessageElement);
+                } else {
+                    eventSource.close();
+                    if (lastMessageElement) {
+                        lastMessageElement.innerHTML = '❌ Connection lost during video processing. The processing may still be happening in the background.';
+                    }
+                }
+            };
+            
+        } catch (error) {
+            console.error('❌ Failed to create EventSource:', error);
+            clearTimeout(connectionTimeout);
+            fallbackToRegularAPI(fileId, instruction, lastMessageElement);
+        }
+    }
+    
+    // Fallback to regular API when streaming fails
+    function fallbackToRegularAPI(fileId, instruction, messageElement) {
+        console.log('🔄 Using fallback regular API call');
+        
+        if (messageElement) {
+            messageElement.innerHTML = '🔄 Processing your video editing request...';
+        }
+        
+        fetch('/api/ai/edit', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                video_id: fileId,
+                prompt: instruction,
+                edit_type: 'vague'
+            })
+        })
+        .then(response => {
+            console.log('📡 Fallback API response status:', response.status);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('✅ Fallback API response data:', data);
+            handleVideoProcessingComplete({ result: data }, messageElement);
+        })
+        .catch(error => {
+            console.error('❌ Fallback API call failed:', error);
+            handleVideoProcessingError({ message: error.message }, messageElement);
+        });
+    }
+    
+    // Handle successful video processing completion
+    function handleVideoProcessingComplete(data, messageElement) {
+        let successMessage = '✅ Video processed successfully using AI!';
+        
+        if (data.result && data.result.commands) {
+            successMessage += `<br><br>🤖 <strong>AI Analysis:</strong><br>${data.result.commands}`;
+        }
+        
+        if (data.result && data.result.output_file) {
+            const outputFile = data.result.output_file;
+            successMessage += `<br><br>📁 <strong>Output file:</strong> ${outputFile}`;
+            
+            // Update the video viewer to show the processed video
+            updateVideoPlayerWithOutput(outputFile);
+            
+            // Add control buttons
+            successMessage += `<br><br>
+                <div style="margin-top: 10px;">
+                    <button onclick="viewOriginalVideo()" style="margin-right: 10px; padding: 5px 10px; background: #007acc; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                        🎬 View Original
+                    </button>
+                    <button onclick="viewProcessedVideo('${outputFile}')" style="margin-right: 10px; padding: 5px 10px; background: #28a745; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                        ✨ View Processed
+                    </button>
+                    <button onclick="downloadProcessedVideo('${outputFile}')" style="padding: 5px 10px; background: #6c757d; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                        📥 Download
+                    </button>
+                </div>`;
+        } else {
+            successMessage += `<br><br>📁 <strong>Output:</strong> Processing analysis completed`;
+        }
+        
+        successMessage += `<br><br>� <strong>The processed video is now loaded in the viewer above!</strong>`;
+        
+        if (messageElement) {
+            messageElement.innerHTML = successMessage;
+        } else {
+            addMessage(successMessage, 'assistant');
+        }
+    }
+    
+    // Handle video processing errors
+    function handleVideoProcessingError(data, messageElement) {
+        let errorMessage = '❌ Sorry, there was an error processing your video.';
+        
+        if (data.message) {
+            if (data.message.includes('503') || data.message.includes('AI service not available')) {
+                errorMessage = '❌ AI service is not available. Please check if the COHERE_API_KEY is set in the backend.';
+            } else if (data.message.includes('404')) {
+                errorMessage = '❌ Video not found. Please make sure the video was uploaded properly.';
+            } else if (data.message.includes('500')) {
+                errorMessage = '❌ Server error during video processing. Please try again.';
+            } else {
+                errorMessage = `❌ ${data.message}`;
+            }
+        }
+        
+        if (messageElement) {
+            messageElement.innerHTML = errorMessage;
+        } else {
+            addMessage(errorMessage, 'assistant');
+        }
+    }
+    
+    function generateAIResponse(userMessage) {
+        const lowerMessage = userMessage.toLowerCase();
+        
+        // Simple keyword-based responses
+        if (lowerMessage.includes('effect') || lowerMessage.includes('transition')) {
+            return `For video effects and transitions, I recommend:
+            <br><br>
+            • Use the Effects Library (Ctrl+5) to browse available effects
+            • Drag and drop effects onto your clips in the timeline
+            • For smooth transitions, try Cross Dissolve or Dip to Color
+            • Adjust effect parameters in the Inspector panel
+            <br><br>
+            Would you like specific recommendations for your current project?`;
+        }
+        
+        if (lowerMessage.includes('color') || lowerMessage.includes('grade')) {
+            return `Color grading in DaVinci Resolve:
+            <br><br>
+            • Switch to the Color page (bottom navigation)
+            • Use Color Wheels for primary corrections
+            • Apply LUTs for quick color styles
+            • Use Power Windows for selective corrections
+            • Check your scopes (Waveform, Vectorscope) for accuracy
+            <br><br>
+            What type of look are you trying to achieve?`;
+        }
+        
+        if (lowerMessage.includes('export') || lowerMessage.includes('render')) {
+            return `For optimal export settings:
+            <br><br>
+            • Go to Deliver page (bottom navigation)
+            • For YouTube: H.264, 1080p, 25-30 fps
+            • For high quality: H.265, 4K if source allows
+            • Set bitrate to 50-100 Mbps for professional quality
+            • Always match your timeline settings
+            <br><br>
+            What platform are you delivering to?`;
+        }
+        
+        if (lowerMessage.includes('timeline') || lowerMessage.includes('organize')) {
+            return `Timeline organization tips:
+            <br><br>
+            • Use track labels to identify content types
+            • Group related clips with Ctrl+G
+            • Color-code your clips for easy identification
+            • Use markers for important moments
+            • Lock tracks you don't want to accidentally edit
+            <br><br>
+            Need help with a specific timeline workflow?`;
+        }
+        
+        // Default response
+        return `I'm here to help with your video editing! I can assist with:
+        <br><br>
+        • Video effects and transitions
+        • Color grading and correction
+        • Timeline organization
+        • Export and delivery settings
+        • Keyboard shortcuts and workflows
+        <br><br>
+        What specific aspect of video editing would you like help with?`;
+    }
+    
+    // Clear chat functionality
+    const clearBtn = document.querySelector('[title="Clear Chat"]');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function() {
+            const messages = chatMessages.querySelectorAll('.message, .welcome-message');
+            messages.forEach((msg, index) => {
+                if (index === 0) return; // Keep welcome message
+                setTimeout(() => {
+                    msg.style.transition = 'all 0.3s ease';
+                    msg.style.opacity = '0';
+                    msg.style.transform = 'translateX(-20px)';
+                    setTimeout(() => msg.remove(), 300);
+                }, index * 50);
+            });
+        });
+    }
+}
+
+// Function to display video in the main viewer (moved outside initializeUpload for global access)
+function displayVideoInViewer(fileId, fileName) {
+    console.log('displayVideoInViewer called with:', fileId, fileName);
+    const videoContent = document.querySelector('.video-content');
+    console.log('Found video-content element:', videoContent);
+    
+    if (videoContent) {
+        // Get the file URL from the stored uploaded files or use file ID
+        const uploadedFile = uploadedFiles.get(fileId);
+        const videoSrc = uploadedFile?.fileURL || `/api/preview/${fileId}`;
+        
+        console.log('Video source:', videoSrc);
+        console.log('Uploaded file data:', uploadedFile);
+        
+        // Create video element with proper source
+        videoContent.innerHTML = `
+            <video 
+                id="mainVideoPlayer" 
+                controls 
+                style="width: 100%; height: 100%; object-fit: contain; background: #000; border: 2px solid #4a9eff;"
+                onloadstart="console.log('Video loading started')"
+                oncanplay="console.log('Video can play')"
+                onerror="console.error('Video error:', this.error)"
+                autoplay
+            >
+                <source src="${videoSrc}" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+            <div class="video-overlay" style="pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+                <div class="safe-area"></div>
+            </div>
+        `;
+        
+        // Update project title to show current video
+        const projectTitle = document.querySelector('.project-title');
+        if (projectTitle) {
+            projectTitle.textContent = 'Video Editor';
+        }
+        
+        console.log('Video element created and inserted into video-content');
+        
+        // Verify the video element was created
+        const videoElement = document.getElementById('mainVideoPlayer');
+        console.log('Video element in DOM:', videoElement);
+        
+    } else {
+        console.error('video-content element not found!');
+    }
+}
+
+// Export Functionality
+function initializeExport() {
+    const viewOriginalTab = document.getElementById('viewOriginalTab');
+    const viewProcessedTab = document.getElementById('viewProcessedTab');
+    const downloadTab = document.getElementById('downloadTab');
+    const exportModal = document.getElementById('exportModal');
+    const closeModal = document.getElementById('closeExportModal');
+    const cancelExport = document.getElementById('cancelExport');
+    const startExport = document.getElementById('startExport');
+    const videoSelect = document.getElementById('videoSelect');
+    
+    // View Original Video
+    viewOriginalTab.addEventListener('click', () => {
+        console.log('👁️ View Original clicked');
+        
+        const currentVideo = currentVideoId || window.currentVideoId;
+        if (!currentVideo) {
+            addMessage('❌ No video selected. Please upload a video first.', 'assistant');
+            return;
+        }
+        
+        // Switch to original video
+        updateVideoPlayer(currentVideo);
+        addMessage('🎬 Switched to original video view', 'assistant');
+    });
+    
+    // View Processed Video
+    viewProcessedTab.addEventListener('click', () => {
+        console.log('✨ View Processed clicked');
+        
+        const processedFilename = window.lastProcessedFilename;
+        if (processedFilename) {
+            // Update video player with processed version
+            updateVideoPlayerWithOutput(processedFilename);
+            addMessage('✨ Switched to processed video view', 'assistant');
+        } else {
+            addMessage('⚠️ No processed video available. Process a video first using AI chat.', 'assistant');
+        }
+    });
+    
+    // Download Current Video
+    downloadTab.addEventListener('click', () => {
+        console.log('📥 Download clicked');
+        
+        const currentVideo = currentVideoId || window.currentVideoId;
+        if (!currentVideo) {
+            addMessage('❌ No video selected for download. Please upload a video first.', 'assistant');
+            return;
+        }
+        
+        // Check if there's a processed version available
+        const processedFilename = window.lastProcessedFilename;
+        if (processedFilename) {
+            console.log('📥 Downloading processed video:', processedFilename);
+            downloadProcessedVideo(processedFilename);
+        } else {
+            console.log('📥 Downloading original video');
+            downloadOriginalVideo(currentVideo);
+        }
+    });
+    
+    // Close modal
+    closeModal.addEventListener('click', closeExportModal);
+    cancelExport.addEventListener('click', closeExportModal);
+    
+    // Close on overlay click
+    exportModal.addEventListener('click', (e) => {
+        if (e.target === exportModal) {
+            closeExportModal();
+        }
+    });
+    
+    // Start export
+    startExport.addEventListener('click', handleExport);
+    
+    function downloadProcessedVideo(filename) {
+        const downloadUrl = `${API_BASE}/outputs/${filename}`;
+        console.log('📥 Downloading processed video from:', downloadUrl);
+        
+        // Create download link
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        addMessage(`📥 Downloaded processed video: ${filename}`, 'assistant');
+    }
+    
+    function downloadOriginalVideo(fileId) {
+        const uploadedFile = uploadedFiles.get(fileId);
+        if (uploadedFile && uploadedFile.fileURL) {
+            console.log('📥 Downloading original video:', uploadedFile.file.filename);
+            
+            // Create download link
+            const link = document.createElement('a');
+            link.href = uploadedFile.fileURL;
+            link.download = uploadedFile.file.filename;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            addMessage(`📥 Downloaded original video: ${uploadedFile.file.filename}`, 'assistant');
+        } else {
+            addMessage('❌ Original video file not available for download.', 'assistant');
+        }
+    }
+
+    function closeExportModal() {
+        exportModal.classList.remove('active');
+        resetExportForm();
+    }
+    
+    function resetExportForm() {
+        document.getElementById('exportProgress').style.display = 'none';
+        document.getElementById('progressFill').style.width = '0%';
+        document.getElementById('progressPercentage').textContent = '0%';
+        startExport.disabled = false;
+        startExport.innerHTML = '<i class="fas fa-download"></i> Export Video';
+    }
+    
+    function handleExport() {
+        const selectedVideo = videoSelect.value;
+        const format = document.getElementById('formatSelect').value;
+        const quality = document.getElementById('qualitySelect').value;
+        
+        if (!selectedVideo) {
+            alert('Please select a video to export');
+            return;
+        }
+        
+        // Show progress
+        document.getElementById('exportProgress').style.display = 'block';
+        startExport.disabled = true;
+        startExport.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+        
+        // Simulate export progress
+        simulateExportProgress();
+        
+        // Send export request
+        fetch('/api/export', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                videoId: selectedVideo,
+                format: format,
+                quality: quality
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            // Download the exported file
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `exported_video.${format}`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            // Reset form
+            setTimeout(() => {
+                resetExportForm();
+                closeExportModal();
+                alert('Video exported successfully!');
+            }, 1000);
+        })
+        .catch(error => {
+            console.error('Export error:', error);
+            alert('Export failed. Please try again.');
+            resetExportForm();
+        });
+    }
+    
+    function simulateExportProgress() {
+        const progressFill = document.getElementById('progressFill');
+        const progressPercentage = document.getElementById('progressPercentage');
+        let progress = 0;
+        
+        const interval = setInterval(() => {
+            progress += Math.random() * 15;
+            if (progress > 100) progress = 100;
+            
+            progressFill.style.width = progress + '%';
+            progressPercentage.textContent = Math.round(progress) + '%';
+            
+            if (progress >= 100) {
+                clearInterval(interval);
+            }
+        }, 500);
+    }
+}
+
+function updateExportOptions() {
+    const videoSelect = document.getElementById('videoSelect');
+    if (!videoSelect) return;
+    
+    // Clear existing options except the first one
+    videoSelect.innerHTML = '<option value="">Choose a video...</option>';
+    
+    // Add uploaded videos to dropdown
+    uploadedFiles.forEach((data, fileId) => {
+        if (data.file && data.file.filename) {
+            const option = document.createElement('option');
+            option.value = fileId;
+            option.textContent = data.file.filename;
+            videoSelect.appendChild(option);
+        }
+    });
+    
+    // Auto-select the current video if available
+    if (currentVideoId || window.currentVideoId) {
+        const activeVideoId = currentVideoId || window.currentVideoId;
+        console.log('🎯 Auto-selecting current video for export:', activeVideoId);
+        videoSelect.value = activeVideoId;
+    }
 }
